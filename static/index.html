@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Editor</title>
+  <style>
+    :root {
+      --bg: #12110f;
+      --panel: #1b1916;
+      --ink: #f3eadc;
+      --muted: #9a9080;
+      --line: #2c2823;
+      --accent: #d7a14a;
+      --paper: #1f1c18;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { display: grid; grid-template-rows: 56px 1fr; }
+    header, .meta, .actions { display: flex; align-items: center; }
+    header { justify-content: space-between; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+    .actions, .meta { gap: 8px; }
+    button {
+      border: 1px solid var(--line); background: #26221d; color: var(--ink);
+      border-radius: 8px; padding: 7px 12px; font: 13px/1.2 inherit; cursor: pointer;
+    }
+    button.primary { background: #3a2e18; color: #f6d89a; }
+    button.danger { color: #f0b2a4; }
+    button:disabled { opacity: 0.45; cursor: default; }
+    .status { min-width: 88px; text-align: right; color: var(--muted); font-size: 12px; }
+    .status.dirty { color: var(--accent); }
+    .status.saved { color: #8fbe8a; }
+    main { display: grid; grid-template-columns: 240px 1fr; min-height: 0; }
+    aside { border-right: 1px solid var(--line); background: var(--panel); padding: 16px 12px; overflow: auto; }
+    h2 { margin: 0 8px 12px; font: 11px/1 inherit; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+    .file, .empty { width: 100%; text-align: left; }
+    .file { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; background: transparent; }
+    .file.active, .file:hover { border-color: var(--line); }
+    .file small, .empty, footer { color: var(--muted); font-size: 12px; }
+    .empty { margin: 8px; }
+    .editor { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; background: var(--paper); }
+    #title, #content { width: 100%; border: 0; outline: none; background: transparent; color: var(--ink); font-family: Georgia, "Times New Roman", serif; }
+    #title { padding: 28px 40px 8px; font-size: 32px; font-weight: 600; }
+    #content { height: 100%; resize: none; padding: 8px 40px 24px; font-size: 18px; line-height: 1.7; }
+    footer { display: flex; justify-content: space-between; padding: 10px 40px 16px; }
+    @media (max-width: 800px) {
+      main { grid-template-columns: 1fr; }
+      aside { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Editor</strong>
+    <div class="actions">
+      <button id="newBtn" type="button">New</button>
+      <button id="saveBtn" class="primary" type="button">Save</button>
+      <button id="deleteBtn" class="danger" type="button" disabled>Delete</button>
+    </div>
+    <div class="meta"><span id="status" class="status">ready</span></div>
+  </header>
+  <main>
+    <aside>
+      <h2>Documents</h2>
+      <div id="files"></div>
+    </aside>
+    <section class="editor">
+      <input id="title" value="Untitled" spellcheck="false" />
+      <textarea id="content" placeholder="Start writing…"></textarea>
+      <footer>
+        <span id="counts">0 words · 0 characters</span>
+        <span>⌘/Ctrl + S to save</span>
+      </footer>
+    </section>
+  </main>
+  <script>
+    const titleEl = document.getElementById("title");
+    const contentEl = document.getElementById("content");
+    const filesEl = document.getElementById("files");
+    const statusEl = document.getElementById("status");
+    const countsEl = document.getElementById("counts");
+    const deleteBtn = document.getElementById("deleteBtn");
+
+    let currentName = null;
+
+    function setStatus(text, cls = "") {
+      statusEl.className = "status " + cls;
+      statusEl.textContent = text;
+    }
+
+    function updateCounts() {
+      const text = contentEl.value.trim();
+      const words = text ? text.split(/\s+/).length : 0;
+      countsEl.textContent = `${words} words · ${contentEl.value.length} characters`;
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Request failed");
+      return data;
+    }
+
+    function renderFiles(docs) {
+      filesEl.replaceChildren();
+      if (!docs.length) {
+        filesEl.innerHTML = `<p class="empty">No saved notes yet.</p>`;
+        return;
+      }
+      for (const doc of docs) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "file" + (doc.name === currentName ? " active" : "");
+        button.innerHTML = `<span></span><small></small>`;
+        button.querySelector("span").textContent = doc.name;
+        button.querySelector("small").textContent = `${doc.chars} chars`;
+        button.addEventListener("click", () => openDoc(doc.name));
+        filesEl.appendChild(button);
+      }
+    }
+
+    async function refreshFiles() {
+      renderFiles(await api("/api/docs"));
+    }
+
+    function blank() {
+      currentName = null;
+      titleEl.value = "Untitled";
+      contentEl.value = "";
+      deleteBtn.disabled = true;
+      setStatus("new");
+      updateCounts();
+      titleEl.focus();
+      titleEl.select();
+    }
+
+    async function openDoc(name) {
+      const doc = await api("/api/docs/" + encodeURIComponent(name));
+      currentName = doc.name;
+      titleEl.value = doc.name;
+      contentEl.value = doc.content;
+      deleteBtn.disabled = false;
+      setStatus("opened");
+      updateCounts();
+      await refreshFiles();
+    }
+
+    async function saveDoc() {
+      const name = titleEl.value.trim() || "Untitled";
+      const doc = await api("/api/docs/" + encodeURIComponent(name), {
+        method: "PUT",
+        body: JSON.stringify({ content: contentEl.value, previous: currentName }),
+      });
+      currentName = doc.name;
+      titleEl.value = doc.name;
+      deleteBtn.disabled = false;
+      setStatus("saved", "saved");
+      await refreshFiles();
+    }
+
+    async function deleteDoc() {
+      if (!currentName || !confirm(`Delete “${currentName}”?`)) return;
+      await api("/api/docs/" + encodeURIComponent(currentName), { method: "DELETE" });
+      blank();
+      setStatus("deleted");
+      await refreshFiles();
+    }
+
+    function run(action) {
+      action().catch((err) => setStatus(err.message, "dirty"));
+    }
+
+    titleEl.addEventListener("input", () => setStatus("unsaved", "dirty"));
+    contentEl.addEventListener("input", () => {
+      setStatus("unsaved", "dirty");
+      updateCounts();
+    });
+    document.getElementById("newBtn").addEventListener("click", () => run(async () => {
+      blank();
+      await refreshFiles();
+    }));
+    document.getElementById("saveBtn").addEventListener("click", () => run(saveDoc));
+    deleteBtn.addEventListener("click", () => run(deleteDoc));
+    document.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        run(saveDoc);
+      }
+    });
+
+    run(async () => {
+      blank();
+      await refreshFiles();
+    });
+  </script>
+</body>
+</html>
