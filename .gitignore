@@ -1,2 +1,8 @@
 __pycache__/
 *.pyc
+static/api_reference.html
+static/socket.io.min.js
+plan.html
+plan.md
+documents/example.txt
+playground.ipynb

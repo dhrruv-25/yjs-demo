@@ -1,93 +1,186 @@
-"""A local text editor. Documents are .txt files in ./documents."""
+"""One in-memory document, one session. Each connection has its own index."""
 
+import asyncio
+import re
+from html import escape
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, request, send_from_directory
+import pycrdt as cr
+import socketio
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from helper import parse_doc_to_md_arr, parse_doc_to_md_str, parse_md_str_to_html
 
 ROOT = Path(__file__).resolve().parent
-DOCS = ROOT / "documents"
+COLORS = ("#7aa2f7", "#9ece6a", "#f7768e", "#bb9af7", "#7dcfff")
 
-app = Flask(__name__)
+DOC = cr.Doc()
+DOC["markdown_arr"] = cr.Array()
+indexes: dict[str, int] = {}
+lock = asyncio.Lock()
 
-
-def doc_file(name: str) -> Path:
-    name = name.strip()
-    if (
-        not name
-        or name in {".", ".."}
-        or "/" in name
-        or "\\" in name
-        or len(name) > 80
-    ):
-        abort(400, "Use a simple title (no slashes, 80 characters or fewer).")
-    path = (DOCS / f"{name}.txt").resolve()
-    if path.parent != DOCS.resolve():
-        abort(400, "Use a simple title (no slashes, 80 characters or fewer).")
-    return path
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+api = FastAPI()
+app = socketio.ASGIApp(sio, api)
 
 
-@app.errorhandler(400)
-@app.errorhandler(404)
-@app.errorhandler(409)
-def api_error(err):
-    return jsonify({"error": err.description}), err.code
+def apply_keystroke(op: str, index: int, char: str, count: int = 1) -> None:
+    arr = parse_doc_to_md_arr(DOC)
+    index = max(0, min(index, len(arr)))
+    with DOC.transaction():
+        if op == "backspace":
+            if index > 0:
+                del arr[index - 1]
+            return
+        if op == "delete":
+            count = max(0, min(count, len(arr) - index))
+            for offset in range(count - 1, -1, -1):
+                del arr[index + offset]
+            return
+        for offset, ch in enumerate(char):
+            arr.insert(index + offset, ch)
 
 
-@app.get("/")
-def index():
-    response = send_from_directory(ROOT / "static", "index.html")
-    response.headers["Cache-Control"] = "no-store"
-    return response
+def shift_for_delete(author: str, start: int, count: int) -> None:
+    end = start + count
+    for sid, pos in indexes.items():
+        if sid == author:
+            continue
+        if pos >= end:
+            indexes[sid] = pos - count
+        elif pos > start:
+            indexes[sid] = start
+    indexes[author] = start
 
 
-@app.get("/api/docs")
-def list_docs():
-    DOCS.mkdir(exist_ok=True)
-    docs = [
-        {"name": path.stem, "chars": path.stat().st_size}
-        for path in sorted(DOCS.glob("*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
-    ]
-    return jsonify(docs)
+def marker(sid: str) -> str:
+    color = COLORS[sum(sid.encode()) % len(COLORS)]
+    return f'<span class="caret" data-sid="{escape(sid, quote=True)}" style="--c:{color}"></span>'
 
 
-@app.get("/api/docs/<name>")
-def read_doc(name):
-    path = doc_file(name)
-    if not path.is_file():
-        abort(404, "Document not found.")
-    return jsonify({"name": name, "content": path.read_text(encoding="utf-8")})
+BR_BEFORE = re.compile(r"<br\s*/?\s*>[ \t]*$", re.IGNORECASE)
 
 
-@app.put("/api/docs/<name>")
-def save_doc(name):
-    path = doc_file(name)
-    body = request.get_json(silent=True) or {}
-    content = body.get("content", "")
-    if not isinstance(content, str):
-        abort(400, "Content must be text.")
-
-    previous = str(body.get("previous") or "").strip()
-    old = doc_file(previous) if previous and previous != name else None
-    if path.is_file() and old is not None:
-        abort(409, "A document with that title already exists.")
-
-    DOCS.mkdir(exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    if old is not None and old.is_file():
-        old.unlink()
-    return jsonify({"name": name, "content": content})
+def with_line_breaks(text: str) -> tuple[str, list[int]]:
+    """Put a <br> before each newline that does not already have one."""
+    pieces: list[str] = []
+    mapping = [0]
+    size = 0
+    for index, char in enumerate(text):
+        if char == "\n" and not BR_BEFORE.search(text[:index]):
+            pieces.append("<br>")
+            size += 4
+        pieces.append(char)
+        size += 1
+        mapping.append(size)
+    return "".join(pieces), mapping
 
 
-@app.delete("/api/docs/<name>")
-def delete_doc(name):
-    path = doc_file(name)
-    if not path.is_file():
-        abort(404, "Document not found.")
-    path.unlink()
-    return jsonify({"ok": True})
+def html_with_carets(text: str) -> str:
+    expanded, mapping = with_line_breaks(text)
+    chars = list(expanded)
+    placed = []
+    for sid, pos in indexes.items():
+        pos = max(0, min(pos, len(text)))
+        placed.append((mapping[pos], sid))
+    for at, sid in sorted(placed, reverse=True):
+        chars.insert(at, marker(sid))
+    return parse_md_str_to_html("".join(chars))
+
+
+def shift_others(author: str, at: int, delta: int) -> None:
+    for sid, pos in indexes.items():
+        if sid != author and pos >= at:
+            indexes[sid] = max(0, pos + delta)
+
+
+async def broadcast() -> None:
+    text = parse_doc_to_md_str(DOC)
+    for sid in indexes:
+        indexes[sid] = max(0, min(indexes[sid], len(text)))
+    await sio.emit(
+        "render",
+        {"html": html_with_carets(text), "markdown": text, "indexes": dict(indexes)},
+    )
+
+
+@sio.event
+async def connect(sid, _environ):
+    async with lock:
+        indexes[sid] = len(parse_doc_to_md_str(DOC))
+        await broadcast()
+
+
+@sio.event
+async def disconnect(sid):
+    async with lock:
+        indexes.pop(sid, None)
+        await broadcast()
+
+
+@sio.event
+async def keystroke(sid, data):
+    async with lock:
+        if not isinstance(data, dict):
+            return {"ok": False}
+        try:
+            index = int(data.get("index", 0))
+        except (TypeError, ValueError):
+            return {"ok": False}
+        index = max(0, min(index, len(parse_doc_to_md_str(DOC))))
+        op = data.get("op")
+        char = data.get("char") or ""
+        if op == "backspace" and index > 0:
+            apply_keystroke("backspace", index, "")
+            shift_others(sid, index, -1)
+            indexes[sid] = index - 1
+        elif op == "delete":
+            try:
+                count = int(data.get("count", 0))
+            except (TypeError, ValueError):
+                return {"ok": False}
+            count = max(0, min(count, len(parse_doc_to_md_str(DOC)) - index))
+            if count <= 0:
+                return {"ok": False}
+            apply_keystroke("delete", index, "", count)
+            shift_for_delete(sid, index, count)
+        elif op == "add" and isinstance(char, str) and char:
+            apply_keystroke("add", index, char)
+            shift_others(sid, index, len(char))
+            indexes[sid] = index + len(char)
+        else:
+            return {"ok": False}
+        await broadcast()
+        return {"ok": True}
+
+
+@sio.event
+async def cursor(sid, data):
+    async with lock:
+        if sid not in indexes or not isinstance(data, dict):
+            return {"ok": False}
+        try:
+            index = int(data.get("index", 0))
+        except (TypeError, ValueError):
+            return {"ok": False}
+        text = parse_doc_to_md_str(DOC)
+        indexes[sid] = max(0, min(index, len(text)))
+        await broadcast()
+        return {"ok": True}
+
+
+@api.get("/")
+async def page():
+    return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-store"})
+
+
+api.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
 if __name__ == "__main__":
-    DOCS.mkdir(exist_ok=True)
+    import uvicorn
+
     print("Editor running at http://127.0.0.1:5050")
-    app.run(host="127.0.0.1", port=5050, debug=True)
+    uvicorn.run(app, host="127.0.0.1", port=5050)
