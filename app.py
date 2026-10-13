@@ -2,6 +2,8 @@
 
 import asyncio
 import re
+import socket
+import subprocess
 from html import escape
 from pathlib import Path
 
@@ -179,8 +181,25 @@ async def page():
 api.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
+def lan_address() -> str:
+    for name in ("en0", "en1"):
+        try:
+            address = subprocess.check_output(["ipconfig", "getifaddr", name], text=True).strip()
+        except (OSError, subprocess.CalledProcessError):
+            continue
+        if address:
+            return address
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+    except OSError:
+        return "0.0.0.0"
+
+
 if __name__ == "__main__":
     import uvicorn
 
     print("Editor running at http://127.0.0.1:5050")
-    uvicorn.run(app, host="127.0.0.1", port=5050)
+    print(f"On this network: http://{lan_address()}:5050")
+    uvicorn.run(app, host="0.0.0.0", port=5050)
