@@ -1,6 +1,8 @@
 import markdownify as mdify
 import markdown_it as mdit
 import pycrdt as cr 
+from pathlib import Path
+
 
 md = mdit.MarkdownIt()
 
@@ -37,3 +39,12 @@ def parse_html_to_doc(html: str):
     assert isinstance(html, str)
     md = parse_html_to_md(html)
     return parse_md_str_to_doc(md)
+
+def get_doc_copy_from_path(path: str):
+    update : bytes = Path(path).read_bytes()
+    doc = cr.Doc()
+    doc.apply_update(update)
+    return doc
+
+def save_doc_to_path(doc: cr.Doc, path: str):
+    Path(path).write_bytes(doc.get_update())

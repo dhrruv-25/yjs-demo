@@ -28,7 +28,10 @@ api = FastAPI()
 app = socketio.ASGIApp(sio, api)
 
 
-def apply_keystroke(op: str, index: int, char: str, count: int = 1) -> None:
+def apply_keystroke(op: str, index: int, char: str, count: int = 1) -> None: 
+    """
+    Applies a keystroke operation to the document.
+    """
     arr = parse_doc_to_md_arr(DOC)
     index = max(0, min(index, len(arr)))
     with DOC.transaction():
@@ -45,7 +48,11 @@ def apply_keystroke(op: str, index: int, char: str, count: int = 1) -> None:
             arr.insert(index + offset, ch)
 
 
-def shift_for_delete(author: str, start: int, count: int) -> None:
+def shift_for_delete(author: str, start: int, count: int) -> None: 
+    """
+    Shifts the cursor position of other users after a delete operation.
+    * This function edits the index object in session memory. *
+    """
     end = start + count
     for sid, pos in indexes.items():
         if sid == author:
@@ -58,20 +65,27 @@ def shift_for_delete(author: str, start: int, count: int) -> None:
 
 
 def marker(sid: str) -> str:
+
+    """
+    Adds a colored caret to the document to indicate the cursor position of each user
+    """
     color = COLORS[sum(sid.encode()) % len(COLORS)]
     return f'<span class="caret" data-sid="{escape(sid, quote=True)}" style="--c:{color}"></span>'
 
 
-BR_BEFORE = re.compile(r"<br\s*/?\s*>[ \t]*$", re.IGNORECASE)
+BR_BEFORE = re.compile(r"<br\s*/?\s*>[ \t]*$", re.IGNORECASE)       
 
 
 def with_line_breaks(text: str) -> tuple[str, list[int]]:
-    """Put a <br> before each newline that does not already have one."""
+    """
+    Put a <br> before each newline that does not already have one.
+    Renders the 2D page into a 1D line and maps the position of each character by jumping positions in the 1D line at every linebreak.
+    """
     pieces: list[str] = []
     mapping = [0]
     size = 0
     for index, char in enumerate(text):
-        if char == "\n" and not BR_BEFORE.search(text[:index]):
+        if char == "\n" and not BR_BEFORE.search(text[:index]): # check if char is /n and whether the text uptill {:index} has a <br> at its end. Basically if a user asks for a new line inline
             pieces.append("<br>")
             size += 4
         pieces.append(char)
@@ -81,6 +95,9 @@ def with_line_breaks(text: str) -> tuple[str, list[int]]:
 
 
 def html_with_carets(text: str) -> str:
+    """
+    Adds carets to the document to indicate the cursor position of each user
+    """
     expanded, mapping = with_line_breaks(text)
     chars = list(expanded)
     placed = []
@@ -93,12 +110,20 @@ def html_with_carets(text: str) -> str:
 
 
 def shift_others(author: str, at: int, delta: int) -> None:
+    """
+    Shifts the cursor position of other users after a keystroke operation.
+    * This function edits the index object in session memory. *
+    """
     for sid, pos in indexes.items():
         if sid != author and pos >= at:
             indexes[sid] = max(0, pos + delta)
 
 
 async def broadcast() -> None:
+    """
+    Broadcasts the document to all users in the session.
+    * This function edits the index object in session memory. *
+    """
     text = parse_doc_to_md_str(DOC)
     for sid in indexes:
         indexes[sid] = max(0, min(indexes[sid], len(text)))
@@ -110,6 +135,10 @@ async def broadcast() -> None:
 
 @sio.event
 async def connect(sid, _environ):
+    """
+    Connects a user to the session. initializes the index object in session memory.
+    * This function edits the index object in session memory. *
+    """
     async with lock:
         indexes[sid] = len(parse_doc_to_md_str(DOC))
         await broadcast()
@@ -117,6 +146,10 @@ async def connect(sid, _environ):
 
 @sio.event
 async def disconnect(sid):
+    """
+    Disconnects a user from the session. removes the index object in session memory.
+    * This function edits the index object in session memory. *
+    """
     async with lock:
         indexes.pop(sid, None)
         await broadcast()
@@ -124,6 +157,10 @@ async def disconnect(sid):
 
 @sio.event
 async def keystroke(sid, data):
+    """
+    Handles a keystroke operation.
+    * This function edits the index object in session memory. *
+    """
     async with lock:
         if not isinstance(data, dict):
             return {"ok": False}
@@ -143,7 +180,7 @@ async def keystroke(sid, data):
                 count = int(data.get("count", 0))
             except (TypeError, ValueError):
                 return {"ok": False}
-            count = max(0, min(count, len(parse_doc_to_md_str(DOC)) - index))
+            count = max(0, min(count, len(parse_doc_to_md_str(DOC)) - index)) #user can delete everything to the right of the cursor
             if count <= 0:
                 return {"ok": False}
             apply_keystroke("delete", index, "", count)
@@ -160,6 +197,10 @@ async def keystroke(sid, data):
 
 @sio.event
 async def cursor(sid, data):
+    """
+    Handles a cursor operation.
+    * This function edits the index object in session memory. *
+    """
     async with lock:
         if sid not in indexes or not isinstance(data, dict):
             return {"ok": False}
@@ -175,6 +216,9 @@ async def cursor(sid, data):
 
 @api.get("/")
 async def page():
+    """
+    Returns the index.html file.
+    """
     return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-store"})
 
 
@@ -182,6 +226,9 @@ api.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
 def lan_address() -> str:
+    """
+    Returns the LAN address of the device.
+    """
     for name in ("en0", "en1"):
         try:
             address = subprocess.check_output(["ipconfig", "getifaddr", name], text=True).strip()
