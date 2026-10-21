@@ -12,9 +12,12 @@ dependencies:
   - python=3.12
   - fastapi=0.142.2
   - uvicorn=0.54.0
+  - bson
+  - pydantic
   - pip
   - pip:
       - pycrdt==0.14.4
       - markdownify==1.2.3
       - markdown-it-py==4.2.0
       - python-socketio==5.17.0
+      - logging

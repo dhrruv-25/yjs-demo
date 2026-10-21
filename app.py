@@ -10,10 +10,28 @@ from pathlib import Path
 import pycrdt as cr
 import socketio
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+import logging
 
-from helper import parse_doc_to_md_arr, parse_doc_to_md_str, parse_md_str_to_html
+
+from helper import (
+    handle_doc_changes,
+    parse_doc_to_md_arr,
+    parse_md_arr_to_md_str,
+    parse_doc_to_md_str,
+    parse_md_str_to_html,
+    parse_doc_to_html,
+    parse_html_to_md,
+    parse_md_str_to_doc,
+    parse_html_to_doc,
+    get_doc_copy_from_path,
+    save_doc_to_path,
+    )
+
+
+log = logging.getLogger(__name__)
+logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.INFO)
 
 ROOT = Path(__file__).resolve().parent
 COLORS = ("#7aa2f7", "#9ece6a", "#f7768e", "#bb9af7", "#7dcfff")
@@ -141,6 +159,7 @@ async def connect(sid, _environ):
     """
     async with lock:
         indexes[sid] = len(parse_doc_to_md_str(DOC))
+        log.info(f"User {sid} connected")
         await broadcast()
 
 
@@ -152,6 +171,7 @@ async def disconnect(sid):
     """
     async with lock:
         indexes.pop(sid, None)
+        log.info(f"User {sid} disconnected")
         await broadcast()
 
 
@@ -219,8 +239,28 @@ async def page():
     """
     Returns the index.html file.
     """
-    return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-store"})
+    folder = ROOT / "documents"
+    items = [
+        f'<li><a href="/documents/{escape(path.name)}">{escape(path.stem)}</a></li>'
+        for path in sorted(folder.iterdir())
+        if path.is_file()
+    ]
+    html = (ROOT / "static" / "docs-dir.html").read_text().replace("<!--FILES-->", "\n".join(items))
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
+
+@api.get("/documents/{filename}")
+async def document(filename: str):
+    """
+    Returns the editor page for the requested document.
+    Loads document contents into global DOC.
+    """
+    global DOC
+    doc_path = ROOT / "documents" / filename
+    if not doc_path.exists() or not doc_path.is_file():
+        return {"error": "Document not found"}, 404
+    DOC = get_doc_copy_from_path(doc_path)
+    return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-store"})
 
 api.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
