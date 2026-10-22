@@ -6,3 +6,5 @@ plan.md
 documents/
 playground.ipynb
 bug_report.md
+schemas/*
+controller/*
