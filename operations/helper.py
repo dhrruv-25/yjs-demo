@@ -46,5 +46,8 @@ def get_doc_copy_from_path(path: str):
     doc.apply_update(update)
     return doc
 
+def get_title_from_path(path: str):
+    return parse_md_arr_to_md_str(get_doc_copy_from_path(path).get("md_title", type=cr.Array).to_py())
+
 def save_doc_to_path(doc: cr.Doc, path: str):
     Path(path).write_bytes(doc.get_update())

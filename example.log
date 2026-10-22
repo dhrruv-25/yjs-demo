@@ -1,0 +1,396 @@
+INFO:__main__:User rvN43vSOUZps8Wt1AAAB connected
+INFO:__main__:User rvN43vSOUZps8Wt1AAAB disconnected
+INFO:__main__:User zNT62Bu7w5rpqYWcAAAD connected
+INFO:__main__:User zNT62Bu7w5rpqYWcAAAD disconnected
+INFO:__main__:User SA7xvtGRa0SxcCsSAAAF connected
+INFO:__main__:User SA7xvtGRa0SxcCsSAAAF disconnected
+INFO:__main__:User rCOZIVTdakZpZVwBAAAB connected
+INFO:__main__:User rCOZIVTdakZpZVwBAAAB disconnected
+INFO:__main__:User gMP0NxjTd7CQjV-ZAAAD connected
+INFO:__main__:User gMP0NxjTd7CQjV-ZAAAD disconnected
+INFO:__main__:User MUxPZtttnLhXfAJ0AAAF connected
+INFO:__main__:User MUxPZtttnLhXfAJ0AAAF disconnected
+INFO:__main__:User 5oqsE-tq4VJYmEB3AAAH connected
+INFO:__main__:User 5oqsE-tq4VJYmEB3AAAH disconnected
+INFO:__main__:User g1dkC8y9cJtOTEa9AAAK connected
+INFO:__main__:User b7MDH6IRbC5KoYJ4AAAM connected
+INFO:__main__:User b7MDH6IRbC5KoYJ4AAAM disconnected
+INFO:__main__:User g1dkC8y9cJtOTEa9AAAK disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    session_manager.get_user_session(sid).connect(sid)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'coroutine' object has no attribute 'connect'
+INFO:__main__:User _tpgNTAjZZPUgH0GAAAB disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid).connect(sid)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'coroutine' object has no attribute 'connect'
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid).connect(sid)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'coroutine' object has no attribute 'connect'
+INFO:__main__:User AoZzDLEO7i8Shny4AAAD disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid).connect(sid)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'coroutine' object has no attribute 'connect'
+INFO:__main__:User 3TMkYM8DMiU2-kEJAAAF disconnected
+INFO:__main__:User GQBXJoZdzs4cpkTtAAAB disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 68, in get_user_session
+    file_id = self.user_sessions.get(user_id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: descriptor 'get' for 'dict' objects doesn't apply to a 'str' object
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 575, in _handle_connect
+    raise exc
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 68, in get_user_session
+    file_id = self.user_sessions.get(user_id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: descriptor 'get' for 'dict' objects doesn't apply to a 'str' object
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 575, in _handle_connect
+    raise exc
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+INFO:__main__:User nh28dfNdgBWf_MikAAAB disconnected
+INFO:__main__:User ED3BpWBi2kt4aDiWAAAD disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 68, in get_user_session
+    file_id = self.user_sessions.get(user_id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: descriptor 'get' for 'dict' objects doesn't apply to a 'str' object
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 575, in _handle_connect
+    raise exc
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+INFO:__main__:User aloeVWnJRfei-wAFAAAB disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 68, in get_user_session
+    file_id = self.user_sessions.get(user_id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: descriptor 'get' for 'dict' objects doesn't apply to a 'str' object
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 575, in _handle_connect
+    raise exc
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+INFO:__main__:User BAgDyx4cPtLQKqo0AAAB disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 68, in get_user_session
+    file_id = self.user_sessions.get(ObjectId(user_id))
+                                     ^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/bson/objectid.py", line 127, in __init__
+    self.__validate(oid)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/bson/objectid.py", line 223, in __validate
+    _raise_invalid_id(oid)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/bson/objectid.py", line 67, in _raise_invalid_id
+    raise InvalidId(
+bson.objectid.InvalidId: 'ovfTwVNl0tG2UH5kAAAB' is not a valid ObjectId, it must be a 12-byte input or a 24-character hex string
+INFO:__main__:User ovfTwVNl0tG2UH5kAAAB disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 68, in get_user_session
+    file_id = self.user_sessions.get(user_id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: descriptor 'get' for 'dict' objects doesn't apply to a 'str' object
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 575, in _handle_connect
+    raise exc
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+INFO:__main__:User nH8DI8GAyoXqhAJAAAAB disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 71, in get_user_session
+    raise FileNotFoundError
+schemas.exceptions.FileNotFoundError
+INFO:__main__:User 3qp-zkrtkGZdmBxKAAAB disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 71, in get_user_session
+    raise FileNotFoundError
+schemas.exceptions.FileNotFoundError
+INFO:__main__:User dZvZaCJwVrhx85s4AAAD disconnected

@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 import logging
 
 
-from helper import (
+from operations.helper import (
     handle_doc_changes,
     parse_doc_to_md_arr,
     parse_md_arr_to_md_str,
@@ -27,7 +27,12 @@ from helper import (
     parse_html_to_doc,
     get_doc_copy_from_path,
     save_doc_to_path,
+    get_title_from_path,
     )
+
+from controller.sessions_manager import SessionsManager
+
+from schemas.exceptions import SaveDocumentError
 
 
 log = logging.getLogger(__name__)
@@ -45,6 +50,7 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 api = FastAPI()
 app = socketio.ASGIApp(sio, api)
 
+session_manager = SessionsManager()
 
 def apply_keystroke(op: str, index: int, char: str, count: int = 1) -> None: 
     """
@@ -157,11 +163,10 @@ async def connect(sid, _environ):
     Connects a user to the session. initializes the index object in session memory.
     * This function edits the index object in session memory. *
     """
-    async with lock:
-        indexes[sid] = len(parse_doc_to_md_str(DOC))
-        log.info(f"User {sid} connected")
-        await broadcast()
-
+    try:
+        await session_manager.get_user_session(sid)
+    except FileNotFoundError:
+        indexes[sid] = 0
 
 @sio.event
 async def disconnect(sid):
@@ -181,38 +186,7 @@ async def keystroke(sid, data):
     Handles a keystroke operation.
     * This function edits the index object in session memory. *
     """
-    async with lock:
-        if not isinstance(data, dict):
-            return {"ok": False}
-        try:
-            index = int(data.get("index", 0))
-        except (TypeError, ValueError):
-            return {"ok": False}
-        index = max(0, min(index, len(parse_doc_to_md_str(DOC))))
-        op = data.get("op")
-        char = data.get("char") or ""
-        if op == "backspace" and index > 0:
-            apply_keystroke("backspace", index, "")
-            shift_others(sid, index, -1)
-            indexes[sid] = index - 1
-        elif op == "delete":
-            try:
-                count = int(data.get("count", 0))
-            except (TypeError, ValueError):
-                return {"ok": False}
-            count = max(0, min(count, len(parse_doc_to_md_str(DOC)) - index)) #user can delete everything to the right of the cursor
-            if count <= 0:
-                return {"ok": False}
-            apply_keystroke("delete", index, "", count)
-            shift_for_delete(sid, index, count)
-        elif op == "add" and isinstance(char, str) and char:
-            apply_keystroke("add", index, char)
-            shift_others(sid, index, len(char))
-            indexes[sid] = index + len(char)
-        else:
-            return {"ok": False}
-        await broadcast()
-        return {"ok": True}
+    return await session_manager.get_user_session(sid).keystroke(sid, data)
 
 
 @sio.event
@@ -221,17 +195,7 @@ async def cursor(sid, data):
     Handles a cursor operation.
     * This function edits the index object in session memory. *
     """
-    async with lock:
-        if sid not in indexes or not isinstance(data, dict):
-            return {"ok": False}
-        try:
-            index = int(data.get("index", 0))
-        except (TypeError, ValueError):
-            return {"ok": False}
-        text = parse_doc_to_md_str(DOC)
-        indexes[sid] = max(0, min(index, len(text)))
-        await broadcast()
-        return {"ok": True}
+    return await session_manager.get_user_session(sid).cursor(sid, data)
 
 
 @api.get("/")
@@ -241,7 +205,7 @@ async def page():
     """
     folder = ROOT / "documents"
     items = [
-        f'<li><a href="/documents/{escape(path.name)}">{escape(path.stem)}</a></li>'
+        f'<li><a href="/documents/{escape(path.name)}">{escape(get_title_from_path(str(path)))}</a></li>'
         for path in sorted(folder.iterdir())
         if path.is_file()
     ]
@@ -264,6 +228,17 @@ async def document(filename: str):
 
 api.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
+
+@api.get("/documents/{filename}/save")
+async def save_document(filename: str):
+    """
+    Saves the document to the file system.
+    """
+    try:
+        await session_manager._get_markdown_session(filename).save_doc()
+    except SaveDocumentError:
+        return {"error": "Failed to save document"}, 500
+    return {"ok": True}
 
 def lan_address() -> str:
     """

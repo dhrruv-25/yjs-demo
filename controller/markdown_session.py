@@ -82,13 +82,6 @@ class MarkdownSession():
             raise DeleteDocumentError
 
 
-    def save_doc(self) -> None:
-        try:
-            save_doc_to_path(self.doc, DOCS_DIR / f"{self.file_id}.crdt")
-        
-        except:
-            raise SaveDocumentError
-
     def drop_member(self, member_id: str) -> None:
         try:
             self.indexes.pop(member_id)
@@ -118,8 +111,7 @@ class MarkdownSession():
     
 
     def set_title(self, title: str) -> None:
-        self.doc.set("md_title", Array(title))
-        save_doc_to_path(self.doc, DOCS_DIR / f"{self.file_id}.crdt")
+        self.doc["md_title"] = Array(title)
     
 
     def _apply_keystroke(self, op: str, index: int, char: str, count: int = 1) -> None: 
@@ -259,7 +251,6 @@ class MarkdownSession():
             return {"ok": True}
 
 
-
     async def broadcast(self) -> None:
         """
         Broadcasts the document to all users in the session.
@@ -270,3 +261,23 @@ class MarkdownSession():
         for sid in indexes:
             indexes[sid] = max(0, min(indexes[sid], len(text)))
         return {"html": self._html_with_carets(text), "markdown": text, "indexes": dict(self.indexes)}
+
+    
+    async def save_doc(self) -> None:
+        async with self.lock:
+            try:
+                save_doc_to_path(self.doc, DOCS_DIR / f"{self.file_id}.crdt")
+                return {"ok": True}
+            except:
+                raise SaveDocumentError
+    
+    async def connect(self, sid: str) -> None:
+        async with self.lock:
+            self.indexes[sid] = len(parse_doc_to_md_str(self.doc))
+            await self.broadcast()
+
+    
+    async def disconnect(self, sid: str) -> None:
+        async with self.lock:
+            self.drop_member(sid)
+            await self.broadcast()
