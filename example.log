@@ -394,3 +394,93 @@ Traceback (most recent call last):
     raise FileNotFoundError
 schemas.exceptions.FileNotFoundError
 INFO:__main__:User dZvZaCJwVrhx85s4AAAD disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 71, in get_user_session
+    raise FileNotFoundError
+schemas.exceptions.FileNotFoundError
+INFO:__main__:User DYrgd_XCu60gs_REAAAB disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 71, in get_user_session
+    raise FileNotFoundError
+schemas.exceptions.FileNotFoundError
+INFO:__main__:User aZvnvY3Ch1lu4suGAAAD disconnected
+ERROR:engineio.server:message async handler error
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 566, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+                ^^^^^^^^^^^^^^
+TypeError: connect() takes 2 positional arguments but 3 were given
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/engineio/async_server.py", line 512, in run_async_handler
+    return await self.handlers[event](*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 708, in _handle_eio_message
+    await self._handle_connect(eio_sid, pkt.namespace, pkt.data)
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 570, in _handle_connect
+    success = await self._trigger_event(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/yjs/lib/python3.12/site-packages/socketio/async_server.py", line 660, in _trigger_event
+    ret = await handler(*args)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/app.py", line 167, in connect
+    await session_manager.get_user_session(sid)
+  File "/Users/dhruv/Desktop/Coding Projects/Active/yjs/controller/sessions_manager.py", line 71, in get_user_session
+    raise FileNotFoundError
+schemas.exceptions.FileNotFoundError
+INFO:__main__:User Bn_71cP3pbDjprzuAAAF disconnected
