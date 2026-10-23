@@ -272,7 +272,7 @@ class MarkdownSession():
     async def save_doc(self) -> None:
         async with self.lock:
             try:
-                save_doc_to_path(self.doc, DOCS_DIR / f"{self.file_id}.crdt")
+                save_doc_to_path(self.doc, DOCS_DIR / f"{self.file_id}")
                 return {"ok": True}
             except:
                 raise SaveDocumentError

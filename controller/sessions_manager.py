@@ -71,7 +71,7 @@ class SessionsManager:
             await self._create_markdown_session(file_id, user_id)
         
         else:
-            await session.connect(user_id)
+            await (self.sessions.get(file_id)).connect(user_id)
             self.user_sessions[user_id] = file_id
         
         return await self.get_user_session(user_id)

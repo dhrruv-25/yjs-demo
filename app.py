@@ -69,6 +69,7 @@ async def connect(sid, _environ):
         cookies_dict[sid] = cookie.get("session_id")
         filename = Path(_environ.get("HTTP_REFERER", "")).name
         await sio.emit("render", await (await session_manager.connect_user(sid, filename)).broadcast())
+        print('connected', sid)
         return {"ok": True}
     except UserAlreadyConnectedError:
         return False 
@@ -88,7 +89,7 @@ async def disconnect(sid):
         final_state = await (await session_manager.get_user_session(sid)).broadcast()
         await session_manager.drop_user_session(sid)
         await sio.emit("render", final_state)
-        print('final_state', final_state)
+        print('disconnect', sid)
         return {"ok": True}
 
 
@@ -167,15 +168,17 @@ async def document(filename: str):
 api.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
-@api.get("/documents/{filename}/save")
+@api.post("/documents/{filename}/save")
 async def save_document(filename: str):
     """
     Saves the document to the file system.
     """
     try:
-        await session_manager._get_markdown_session(filename).save_doc()
+        await (await session_manager._get_markdown_session(filename+'.crdt')).save_doc()
     except SaveDocumentError:
         return {"error": "Failed to save document"}, 500
+    except FileNotFoundError:
+        return {"error": "Document not found"}, 404
     return {"ok": True}
 
 def lan_address() -> str:
