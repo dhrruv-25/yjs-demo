@@ -6,13 +6,14 @@ import socket
 import subprocess
 from html import escape
 from pathlib import Path
-
+from http.cookies import SimpleCookie
 import pycrdt as cr
 import socketio
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import logging
+from bson import ObjectId
 
 
 from operations.helper import (
@@ -32,7 +33,11 @@ from operations.helper import (
 
 from controller.sessions_manager import SessionsManager
 
-from schemas.exceptions import SaveDocumentError
+from schemas.exceptions import (
+    SaveDocumentError, 
+    UserAlreadyConnectedError,
+    UserNotConnectedError
+)
 
 
 log = logging.getLogger(__name__)
@@ -44,6 +49,7 @@ COLORS = ("#7aa2f7", "#9ece6a", "#f7768e", "#bb9af7", "#7dcfff")
 DOC = cr.Doc()
 DOC["markdown_arr"] = cr.Array()
 indexes: dict[str, int] = {}
+cookies_dict = {}
 lock = asyncio.Lock()
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
@@ -52,121 +58,23 @@ app = socketio.ASGIApp(sio, api)
 
 session_manager = SessionsManager()
 
-def apply_keystroke(op: str, index: int, char: str, count: int = 1) -> None: 
-    """
-    Applies a keystroke operation to the document.
-    """
-    arr = parse_doc_to_md_arr(DOC)
-    index = max(0, min(index, len(arr)))
-    with DOC.transaction():
-        if op == "backspace":
-            if index > 0:
-                del arr[index - 1]
-            return
-        if op == "delete":
-            count = max(0, min(count, len(arr) - index))
-            for offset in range(count - 1, -1, -1):
-                del arr[index + offset]
-            return
-        for offset, ch in enumerate(char):
-            arr.insert(index + offset, ch)
-
-
-def shift_for_delete(author: str, start: int, count: int) -> None: 
-    """
-    Shifts the cursor position of other users after a delete operation.
-    * This function edits the index object in session memory. *
-    """
-    end = start + count
-    for sid, pos in indexes.items():
-        if sid == author:
-            continue
-        if pos >= end:
-            indexes[sid] = pos - count
-        elif pos > start:
-            indexes[sid] = start
-    indexes[author] = start
-
-
-def marker(sid: str) -> str:
-
-    """
-    Adds a colored caret to the document to indicate the cursor position of each user
-    """
-    color = COLORS[sum(sid.encode()) % len(COLORS)]
-    return f'<span class="caret" data-sid="{escape(sid, quote=True)}" style="--c:{color}"></span>'
-
-
-BR_BEFORE = re.compile(r"<br\s*/?\s*>[ \t]*$", re.IGNORECASE)       
-
-
-def with_line_breaks(text: str) -> tuple[str, list[int]]:
-    """
-    Put a <br> before each newline that does not already have one.
-    Renders the 2D page into a 1D line and maps the position of each character by jumping positions in the 1D line at every linebreak.
-    """
-    pieces: list[str] = []
-    mapping = [0]
-    size = 0
-    for index, char in enumerate(text):
-        if char == "\n" and not BR_BEFORE.search(text[:index]): # check if char is /n and whether the text uptill {:index} has a <br> at its end. Basically if a user asks for a new line inline
-            pieces.append("<br>")
-            size += 4
-        pieces.append(char)
-        size += 1
-        mapping.append(size)
-    return "".join(pieces), mapping
-
-
-def html_with_carets(text: str) -> str:
-    """
-    Adds carets to the document to indicate the cursor position of each user
-    """
-    expanded, mapping = with_line_breaks(text)
-    chars = list(expanded)
-    placed = []
-    for sid, pos in indexes.items():
-        pos = max(0, min(pos, len(text)))
-        placed.append((mapping[pos], sid))
-    for at, sid in sorted(placed, reverse=True):
-        chars.insert(at, marker(sid))
-    return parse_md_str_to_html("".join(chars))
-
-
-def shift_others(author: str, at: int, delta: int) -> None:
-    """
-    Shifts the cursor position of other users after a keystroke operation.
-    * This function edits the index object in session memory. *
-    """
-    for sid, pos in indexes.items():
-        if sid != author and pos >= at:
-            indexes[sid] = max(0, pos + delta)
-
-
-async def broadcast() -> None:
-    """
-    Broadcasts the document to all users in the session.
-    * This function edits the index object in session memory. *
-    """
-    text = parse_doc_to_md_str(DOC)
-    for sid in indexes:
-        indexes[sid] = max(0, min(indexes[sid], len(text)))
-    await sio.emit(
-        "render",
-        {"html": html_with_carets(text), "markdown": text, "indexes": dict(indexes)},
-    )
-
-
 @sio.event
 async def connect(sid, _environ):
     """
     Connects a user to the session. initializes the index object in session memory.
-    * This function edits the index object in session memory. *
+    * This function edits the index object in session memory.*
     """
     try:
-        await session_manager.get_user_session(sid)
+        cookie = SimpleCookie(_environ.get("HTTP_COOKIE"))
+        cookies_dict[sid] = cookie.get("session_id")
+        filename = Path(_environ.get("HTTP_REFERER", "")).name
+        await sio.emit("render", await (await session_manager.connect_user(sid, filename)).broadcast())
+        return {"ok": True}
+    except UserAlreadyConnectedError:
+        return False 
     except FileNotFoundError:
-        indexes[sid] = 0
+        return False
+
 
 @sio.event
 async def disconnect(sid):
@@ -175,9 +83,13 @@ async def disconnect(sid):
     * This function edits the index object in session memory. *
     """
     async with lock:
-        indexes.pop(sid, None)
+        cookies_dict.pop(sid, None)
         log.info(f"User {sid} disconnected")
-        await broadcast()
+        final_state = await (await session_manager.get_user_session(sid)).broadcast()
+        await session_manager.drop_user_session(sid)
+        await sio.emit("render", final_state)
+        print('final_state', final_state)
+        return {"ok": True}
 
 
 @sio.event
@@ -186,7 +98,16 @@ async def keystroke(sid, data):
     Handles a keystroke operation.
     * This function edits the index object in session memory. *
     """
-    return await session_manager.get_user_session(sid).keystroke(sid, data)
+
+    try:
+        emit = await (await session_manager.get_user_session(sid)).keystroke(sid, data)
+    except Exception as e:
+        print('error', e)
+        return {"ok": False}
+
+    await sio.emit("render", emit)
+    print('emit', emit)
+    return {"ok": True}
 
 
 @sio.event
@@ -195,7 +116,15 @@ async def cursor(sid, data):
     Handles a cursor operation.
     * This function edits the index object in session memory. *
     """
-    return await session_manager.get_user_session(sid).cursor(sid, data)
+    try:
+        emit = await (await session_manager.get_user_session(sid)).cursor(sid, data)
+    except Exception as e:
+        print('error', e)
+        return {"ok": False}
+
+    await sio.emit("render", emit)
+    print('emit', emit)
+    return {"ok": True}
 
 
 @api.get("/")
@@ -210,7 +139,16 @@ async def page():
         if path.is_file()
     ]
     html = (ROOT / "static" / "docs-dir.html").read_text().replace("<!--FILES-->", "\n".join(items))
-    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+    response = HTMLResponse(html, headers={"Cache-Control": "no-store"})
+    response.set_cookie(
+        key="session_id",
+        value=str(ObjectId()),
+        httponly=True,   # JavaScript can't read it
+        secure=True,     # Only sent over HTTPS
+        samesite="lax",  # Limits cross-site sending
+        max_age=3600,    # Lifetime in seconds
+    )
+    return response
 
 
 @api.get("/documents/{filename}")

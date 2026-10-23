@@ -1,5 +1,6 @@
 from controller.markdown_session import MarkdownSession
 from pydantic import BaseModel
+from typing import Optional
 from typing import Dict
 from bson import ObjectId
 from schemas.exceptions import (
@@ -9,7 +10,9 @@ from schemas.exceptions import (
     SessionNotFoundError,
     UnknownError,
     DuplicateMemberError,
-    SessionNotEmptyError
+    SessionNotEmptyError,
+    UserAlreadyConnectedError,
+    UserNotConnectedError
 )
 import asyncio
 '''
@@ -38,8 +41,8 @@ Methods:
 
 class SessionsManager:
     def __init__(self):
-        self.user_sessions: Dict[str, ObjectId] = {str(ObjectId()): ObjectId('6ad658148c6ec8fbafa2da50')}
-        self.sessions: Dict[ObjectId, MarkdownSession]
+        self.user_sessions: Dict[str, ObjectId] = {}
+        self.sessions: Dict[ObjectId, MarkdownSession] = {}
         self.lock = asyncio.Lock()
 
 
@@ -52,12 +55,29 @@ class SessionsManager:
                 session = MarkdownSession(file_id)
             
             self.user_sessions[user_id] = file_id
-            session.add_member(user_id)
+            await session.connect(user_id)
             self.sessions[file_id] = session
-            return self._get_user_session(user_id)
+            #return await self.get_user_session(user_id)        ##get_user_session uses the same lock
 
 
-    def _get_markdown_session(self, file_id: str) -> MarkdownSession:
+    async def connect_user(self, user_id: str, file_id: ObjectId) -> MarkdownSession:
+        if self.user_sessions.get(user_id) is not None:
+            raise UserAlreadyConnectedError
+        
+        session = self.sessions.get(file_id) 
+
+        if session is None:
+            print("Creating session")
+            await self._create_markdown_session(file_id, user_id)
+        
+        else:
+            await session.connect(user_id)
+            self.user_sessions[user_id] = file_id
+        
+        return await self.get_user_session(user_id)
+
+
+    async def _get_markdown_session(self, file_id: str) -> MarkdownSession:
         if self.sessions.get(file_id) is None:
             raise FileNotFoundError
         
@@ -65,27 +85,29 @@ class SessionsManager:
 
 
     async def get_user_session(self, user_id: str) -> MarkdownSession:
-        file_id = self.user_sessions.get(user_id)
+        async with self.lock:
+            file_id = self.user_sessions.get(user_id)
 
-        if file_id is None:
-            raise FileNotFoundError
-        
-        return self._get_markdown_session(file_id)
+            if file_id is None:
+                raise UserNotConnectedError
+            
+            return await self._get_markdown_session(file_id)
     
 
     async def drop_user_session(self, user_id: str) -> None:
             file_id = self.user_sessions.get(user_id)
-            delete_session = len(await self.get_user_session(user_id).get_members()) == 1
-            await self.get_user_session(user_id).drop_member(user_id)
+            session = await self.get_user_session(user_id)
+            flag = len(session.get_members()) == 1
+            (await self.get_user_session(user_id)).drop_member(user_id)
             self.user_sessions.pop(user_id)
 
-            if delete_session:
+            if flag:
                 await self._delete_session(file_id)
 
 
     async def _delete_session(self, file_id: str) -> None:
         async with self.lock:
-            session = self._get_markdown_session(file_id)
+            session = await self._get_markdown_session(file_id)
 
             if len(session.indexes.keys()) > 0:
                 raise SessionNotEmptyError

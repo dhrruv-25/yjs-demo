@@ -70,14 +70,14 @@ class MarkdownSession():
     def __init__(self, file_id: ObjectId):
         super().__init__()
         self.file_id = file_id
-        self.doc = get_doc_copy_from_path(DOCS_DIR / f"{file_id}.crdt")
+        self.doc = get_doc_copy_from_path(DOCS_DIR / f"{file_id}")
         self.indexes = {}
         self.lock = asyncio.Lock()
 
 
     def delete_doc(self) -> None:
         try:
-            os.remove(DOCS_DIR / f"{self.file_id}.crdt")
+            os.remove(DOCS_DIR / f"{self.file_id}")
         except:
             raise DeleteDocumentError
 
@@ -139,16 +139,15 @@ class MarkdownSession():
         Shifts the cursor position of other users after a delete operation.
         * This function edits the index object in session memory. *
         """
-        indexes = self.get_indexes()
         end = start + count
-        for sid, pos in indexes.items():
+        for sid, pos in self.indexes.items():
             if sid == author:
                 continue
             if pos >= end:
-                indexes[sid] = pos - count
+                self.indexes[sid] = pos - count
             elif pos > start:
-                indexes[sid] = start
-        indexes[author] = start
+                self.indexes[sid] = start
+        self.indexes[author] = start
     
 
     def _with_line_breaks(self, text: str) -> tuple[str, list[int]]:
@@ -170,7 +169,7 @@ class MarkdownSession():
         return "".join(pieces), mapping
     
 
-    def _marker(sid: str) -> str:
+    def _marker(self, sid: str) -> str:
         """
         Adds a colored caret to the document to indicate the cursor position of each user
         """
@@ -184,14 +183,22 @@ class MarkdownSession():
         """
         expanded, mapping = self._with_line_breaks(text)
         chars = list(expanded)
-        indexes = self.get_indexes()
         placed = []
-        for sid, pos in indexes.items():
+        for sid, pos in self.indexes.items():
             pos = max(0, min(pos, len(text)))
             placed.append((mapping[pos], sid))
         for at, sid in sorted(placed, reverse=True):
             chars.insert(at, self._marker(sid))
         return parse_md_str_to_html("".join(chars))
+
+    def _shift_others(self, author: str, at: int, delta: int) -> None:
+        """
+        Shifts the cursor position of other users after a keystroke operation.
+        * This function edits the index object in session memory. *
+        """
+        for sid, pos in self.indexes.items():
+            if sid != author and pos >= at:
+                self.indexes[sid] = max(0, pos + delta)
 
     
     async def keystroke(self, sid: str, data: dict) -> dict:
@@ -211,7 +218,7 @@ class MarkdownSession():
             char = data.get("char") or ""
             if op == "backspace" and index > 0:
                 self._apply_keystroke("backspace", index, "")
-                self.shift_others(sid, index, -1)
+                self._shift_others(sid, index, -1)
                 self.indexes[sid] = index - 1
             elif op == "delete":
                 try:
@@ -225,12 +232,12 @@ class MarkdownSession():
                 self._shift_for_delete(sid, index, count)
             elif op == "add" and isinstance(char, str) and char:
                 self._apply_keystroke("add", index, char)
-                self.shift_others(sid, index, len(char))
+                self._shift_others(sid, index, len(char))
                 self.indexes[sid] = index + len(char)
             else:
                 return {"ok": False}
-            await self.broadcast()
-            return {"ok": True}
+            return await self.broadcast()
+            #return {"ok": True}
         
 
     async def cursor(self, sid: str, data: dict) -> dict:
@@ -247,8 +254,8 @@ class MarkdownSession():
                 return {"ok": False}
             text = parse_doc_to_md_str(self.doc)
             self.indexes[sid] = max(0, min(index, len(text)))
-            await self.broadcast()
-            return {"ok": True}
+            return await self.broadcast()
+            #return {"ok": True}
 
 
     async def broadcast(self) -> None:
@@ -257,9 +264,8 @@ class MarkdownSession():
         * This function edits the index object in session memory. *
         """
         text = parse_doc_to_md_str(self.doc)
-        indexes = self.get_indexes()
-        for sid in indexes:
-            indexes[sid] = max(0, min(indexes[sid], len(text)))
+        for sid in self.indexes:
+            self.indexes[sid] = max(0, min(self.indexes[sid], len(text)))
         return {"html": self._html_with_carets(text), "markdown": text, "indexes": dict(self.indexes)}
 
     
@@ -273,7 +279,7 @@ class MarkdownSession():
     
     async def connect(self, sid: str) -> None:
         async with self.lock:
-            self.indexes[sid] = len(parse_doc_to_md_str(self.doc))
+            self.add_member(sid)
             await self.broadcast()
 
     
