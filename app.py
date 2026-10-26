@@ -10,7 +10,7 @@ from http.cookies import SimpleCookie
 import pycrdt as cr
 import socketio
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import logging
 from bson import ObjectId
@@ -29,6 +29,9 @@ from operations.helper import (
     get_doc_copy_from_path,
     save_doc_to_path,
     get_title_from_path,
+    delete_doc_from_path,
+    create_doc_from_path,
+    set_title_to_doc_from_path,
     )
 
 from controller.sessions_manager import SessionsManager
@@ -36,7 +39,8 @@ from controller.sessions_manager import SessionsManager
 from schemas.exceptions import (
     SaveDocumentError, 
     UserAlreadyConnectedError,
-    UserNotConnectedError
+    UserNotConnectedError,
+    SessionNotFoundError
 )
 
 
@@ -67,7 +71,7 @@ async def connect(sid, _environ):
     try:
         cookie = SimpleCookie(_environ.get("HTTP_COOKIE"))
         cookies_dict[sid] = cookie.get("session_id")
-        filename = Path(_environ.get("HTTP_REFERER", "")).name
+        filename = ObjectId(Path(_environ.get("HTTP_REFERER", "")).name.split('.crdt')[0])
         await sio.emit("render", await (await session_manager.connect_user(sid, filename)).broadcast())
         print('connected', sid)
         return {"ok": True}
@@ -105,6 +109,27 @@ async def keystroke(sid, data):
     except Exception as e:
         print('error', e)
         return {"ok": False}
+    if not emit or emit.get("ok") is False:
+        return {"ok": False}
+
+    await sio.emit("render", emit)
+    print('emit', emit)
+    return {"ok": True}
+
+
+@sio.event
+async def title_keystroke(sid, data):
+    """
+    Handles a keystroke in the document title.
+    Moves the author from the document cursor to title_index.
+    """
+    try:
+        emit = await (await session_manager.get_user_session(sid)).title_keystroke(sid, data)
+    except Exception as e:
+        print('error', e)
+        return {"ok": False}
+    if not emit or emit.get("ok") is False:
+        return {"ok": False}
 
     await sio.emit("render", emit)
     print('emit', emit)
@@ -121,6 +146,8 @@ async def cursor(sid, data):
         emit = await (await session_manager.get_user_session(sid)).cursor(sid, data)
     except Exception as e:
         print('error', e)
+        return {"ok": False}
+    if not emit or emit.get("ok") is False:
         return {"ok": False}
 
     await sio.emit("render", emit)
@@ -161,7 +188,7 @@ async def document(filename: str):
     global DOC
     doc_path = ROOT / "documents" / filename
     if not doc_path.exists() or not doc_path.is_file():
-        return {"error": "Document not found"}, 404
+        return JSONResponse({"error": "Document not found"}, status_code=404)
     DOC = get_doc_copy_from_path(doc_path)
     return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-store"})
 
@@ -174,12 +201,44 @@ async def save_document(filename: str):
     Saves the document to the file system.
     """
     try:
-        await (await session_manager._get_markdown_session(filename+'.crdt')).save_doc()
+        await (await session_manager._get_markdown_session(ObjectId(filename))).save_doc()
     except SaveDocumentError:
-        return {"error": "Failed to save document"}, 500
-    except FileNotFoundError:
-        return {"error": "Document not found"}, 404
+        return JSONResponse({"error": "Failed to save document"}, status_code=500)
+    except SessionNotFoundError:
+        return JSONResponse({"error": "Document not found"}, status_code=404)
     return {"ok": True}
+
+
+@api.delete("/documents/{filename}")
+async def delete_document(filename: str):
+    """
+    Deletes the document from the file system.
+    """
+    filename = f'{filename}.crdt'
+    delete_doc_from_path(str(ROOT / "documents" / filename))
+    return {"ok": True}
+
+
+@api.put("/create-file/{filename}/{title}")
+async def create_document(filename: str, title: str):
+    """
+    Creates a new document in the file system.
+    """
+    filename = f'{filename}.crdt'
+    create_doc_from_path(str(ROOT / "documents" / filename))
+    set_title_to_doc_from_path(str(ROOT / "documents" / filename), title)
+    return {"ok": True}
+
+
+@api.post("/set-title/{filename}/{title}")
+async def set_title(filename: str, title: str):
+    """
+    Sets the title of the document in the file system.
+    """
+    filename = f'{filename}.crdt'
+    set_title_to_doc_from_path(str(ROOT / "documents" / filename), title)
+    return {"ok": True}
+
 
 def lan_address() -> str:
     """

@@ -77,9 +77,9 @@ class SessionsManager:
         return await self.get_user_session(user_id)
 
 
-    async def _get_markdown_session(self, file_id: str) -> MarkdownSession:
+    async def _get_markdown_session(self, file_id: ObjectId) -> MarkdownSession:
         if self.sessions.get(file_id) is None:
-            raise FileNotFoundError
+            raise SessionNotFoundError
         
         return self.sessions.get(file_id)
 
@@ -105,11 +105,12 @@ class SessionsManager:
                 await self._delete_session(file_id)
 
 
-    async def _delete_session(self, file_id: str) -> None:
+    async def _delete_session(self, file_id: ObjectId) -> None:
         async with self.lock:
             session = await self._get_markdown_session(file_id)
 
             if len(session.indexes.keys()) > 0:
                 raise SessionNotEmptyError
             
+            await (await self._get_markdown_session(file_id)).save_doc()
             self.sessions.pop(file_id)

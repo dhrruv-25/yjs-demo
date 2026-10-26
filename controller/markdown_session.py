@@ -20,13 +20,11 @@ from operations.helper import (
 from pathlib import Path
 from html import escape
 import os
-import re
 import asyncio
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = ROOT / "documents"
-COLORS = ("#7aa2f7", "#9ece6a", "#f7768e", "#bb9af7", "#7dcfff")
-BR_BEFORE = re.compile(r"<br\s*/?\s*>[ \t]*$", re.IGNORECASE) 
+COLORS = ("#7aa2f7", "#9ece6a", "#f7768e", "#bb9af7", "#7dcfff") 
 
 '''
  Notes:  ** This MarkdownSession is used to load existing markdown documents into session memory. **
@@ -70,16 +68,10 @@ class MarkdownSession():
     def __init__(self, file_id: ObjectId):
         super().__init__()
         self.file_id = file_id
-        self.doc = get_doc_copy_from_path(DOCS_DIR / f"{file_id}")
+        self.doc = get_doc_copy_from_path(DOCS_DIR / f"{file_id}.crdt")
         self.indexes = {}
+        self.title_index = {}
         self.lock = asyncio.Lock()
-
-
-    def delete_doc(self) -> None:
-        try:
-            os.remove(DOCS_DIR / f"{self.file_id}")
-        except:
-            raise DeleteDocumentError
 
 
     def drop_member(self, member_id: str) -> None:
@@ -87,6 +79,7 @@ class MarkdownSession():
             self.indexes.pop(member_id)
         except:
             raise MemberNotFoundError
+        self.title_index.pop(member_id, None)
         
         if self.indexes.keys().__contains__(member_id):
             raise DuplicateMemberError
@@ -97,7 +90,8 @@ class MarkdownSession():
             raise DuplicateMemberError
         
         else:
-            self.indexes[member_id] = len(self.doc.get("md_content", type=Array).to_py())
+            self.indexes[member_id] = len(parse_doc_to_md_arr(self.doc))
+            self.title_index[member_id] = None
 
 
     def get_members(self) -> List[str]:
@@ -111,14 +105,19 @@ class MarkdownSession():
     
 
     def set_title(self, title: str) -> None:
-        self.doc["md_title"] = Array(title)
-    
+        arr = self.doc.get("md_title", type=Array)
+        with self.doc.transaction():
+            arr.clear()
+            if title:
+                arr.extend(list(title))
 
-    def _apply_keystroke(self, op: str, index: int, char: str, count: int = 1) -> None: 
+
+    def _apply_keystroke(self, op: str, index: int, char: str, count: int = 1, arr: Array = None) -> None: 
         """
             Applies a keystroke operation to the document.
         """
-        arr = parse_doc_to_md_arr(self.doc)
+        if arr is None:
+            arr = parse_doc_to_md_arr(self.doc)
         index = max(0, min(index, len(arr)))
         with self.doc.transaction():
             if op == "backspace":
@@ -134,39 +133,30 @@ class MarkdownSession():
                 arr.insert(index + offset, ch)
 
 
-    def _shift_for_delete(self, author: str, start: int, count: int) -> None: 
+    def _shift_for_delete(self, author: str, start: int, count: int, positions: dict = None) -> None: 
         """
         Shifts the cursor position of other users after a delete operation.
         * This function edits the index object in session memory. *
         """
+        if positions is None:
+            positions = self.indexes
         end = start + count
-        for sid, pos in self.indexes.items():
-            if sid == author:
+        for sid, pos in positions.items():
+            if sid == author or pos is None:
                 continue
             if pos >= end:
-                self.indexes[sid] = pos - count
+                positions[sid] = pos - count
             elif pos > start:
-                self.indexes[sid] = start
-        self.indexes[author] = start
+                positions[sid] = start
+        positions[author] = start
     
 
     def _with_line_breaks(self, text: str) -> tuple[str, list[int]]:
         """
-        Put a <br> before each newline that does not already have one.
-        Renders the 2D page into a 1D line and maps the position of each character by jumping positions in the 1D line at every linebreak.
+        Keep the markdown source intact and map each cursor index onto that source.
+        Single newlines become <br> when the markdown renderer runs.
         """
-        text = parse_doc_to_md_str(self.doc)
-        pieces: list[str] = []
-        mapping = [0]
-        size = 0
-        for index, char in enumerate(text):
-            if char == "\n" and not BR_BEFORE.search(text[:index]): # check if char is /n and whether the text uptill {:index} has a <br> at its end. Basically if a user asks for a new line inline
-                pieces.append("<br>")
-                size += 4
-            pieces.append(char)
-            size += 1
-            mapping.append(size)
-        return "".join(pieces), mapping
+        return text, list(range(len(text) + 1))
     
 
     def _marker(self, sid: str) -> str:
@@ -185,59 +175,79 @@ class MarkdownSession():
         chars = list(expanded)
         placed = []
         for sid, pos in self.indexes.items():
+            if pos is None:
+                continue
             pos = max(0, min(pos, len(text)))
             placed.append((mapping[pos], sid))
         for at, sid in sorted(placed, reverse=True):
             chars.insert(at, self._marker(sid))
         return parse_md_str_to_html("".join(chars))
 
-    def _shift_others(self, author: str, at: int, delta: int) -> None:
+    def _shift_others(self, author: str, at: int, delta: int, positions: dict = None) -> None:
         """
         Shifts the cursor position of other users after a keystroke operation.
         * This function edits the index object in session memory. *
         """
-        for sid, pos in self.indexes.items():
-            if sid != author and pos >= at:
-                self.indexes[sid] = max(0, pos + delta)
+        if positions is None:
+            positions = self.indexes
+        for sid, pos in positions.items():
+            if sid != author and pos is not None and pos >= at:
+                positions[sid] = max(0, pos + delta)
 
     
+    async def _keystroke_locked(self, sid: str, data: dict, arr: Array, positions: dict, other: dict) -> dict:
+        if not isinstance(data, dict):
+            return {"ok": False}
+        try:
+            index = int(data.get("index", 0))
+        except (TypeError, ValueError):
+            return {"ok": False}
+        index = max(0, min(index, len(arr)))
+        op = data.get("op")
+        char = data.get("char") or ""
+        if op == "backspace" and index > 0:
+            self._apply_keystroke("backspace", index, "", arr=arr)
+            self._shift_others(sid, index, -1, positions)
+            positions[sid] = index - 1
+        elif op == "delete":
+            try:
+                count = int(data.get("count", 0))
+            except (TypeError, ValueError):
+                return {"ok": False}
+            count = max(0, min(count, len(arr) - index))
+            if count <= 0:
+                return {"ok": False}
+            self._apply_keystroke("delete", index, "", count, arr)
+            self._shift_for_delete(sid, index, count, positions)
+        elif op == "add" and isinstance(char, str) and char:
+            self._apply_keystroke("add", index, char, arr=arr)
+            self._shift_others(sid, index, len(char), positions)
+            positions[sid] = index + len(char)
+        else:
+            return {"ok": False}
+        other[sid] = None
+        return await self.broadcast()
+
+
     async def keystroke(self, sid: str, data: dict) -> dict:
         """
         Handles a keystroke operation.
         * This function edits the index object in session memory. *
         """
         async with self.lock:
-            if not isinstance(data, dict):
-                return {"ok": False}
-            try:
-                index = int(data.get("index", 0))
-            except (TypeError, ValueError):
-                return {"ok": False}
-            index = max(0, min(index, len(parse_doc_to_md_str(self.doc))))
-            op = data.get("op")
-            char = data.get("char") or ""
-            if op == "backspace" and index > 0:
-                self._apply_keystroke("backspace", index, "")
-                self._shift_others(sid, index, -1)
-                self.indexes[sid] = index - 1
-            elif op == "delete":
-                try:
-                    count = int(data.get("count", 0))
-                except (TypeError, ValueError):
-                    return {"ok": False}
-                count = max(0, min(count, len(parse_doc_to_md_str(self.doc)) - index)) #user can delete everything to the right of the cursor
-                if count <= 0:
-                    return {"ok": False}
-                self._apply_keystroke("delete", index, "", count)
-                self._shift_for_delete(sid, index, count)
-            elif op == "add" and isinstance(char, str) and char:
-                self._apply_keystroke("add", index, char)
-                self._shift_others(sid, index, len(char))
-                self.indexes[sid] = index + len(char)
-            else:
-                return {"ok": False}
-            return await self.broadcast()
-            #return {"ok": True}
+            return await self._keystroke_locked(
+                sid, data, parse_doc_to_md_arr(self.doc), self.indexes, self.title_index
+            )
+
+
+    async def title_keystroke(self, sid: str, data: dict) -> dict:
+        """
+        Handles a keystroke in the title. The author leaves the document cursor.
+        """
+        async with self.lock:
+            return await self._keystroke_locked(
+                sid, data, self.doc.get("md_title", type=Array), self.title_index, self.indexes
+            )
         
 
     async def cursor(self, sid: str, data: dict) -> dict:
@@ -254,6 +264,7 @@ class MarkdownSession():
                 return {"ok": False}
             text = parse_doc_to_md_str(self.doc)
             self.indexes[sid] = max(0, min(index, len(text)))
+            self.title_index[sid] = None
             return await self.broadcast()
             #return {"ok": True}
 
@@ -264,15 +275,26 @@ class MarkdownSession():
         * This function edits the index object in session memory. *
         """
         text = parse_doc_to_md_str(self.doc)
-        for sid in self.indexes:
-            self.indexes[sid] = max(0, min(self.indexes[sid], len(text)))
-        return {"html": self._html_with_carets(text), "markdown": text, "indexes": dict(self.indexes)}
+        title = self.get_title()
+        for sid, pos in self.indexes.items():
+            if pos is not None:
+                self.indexes[sid] = max(0, min(pos, len(text)))
+        for sid, pos in self.title_index.items():
+            if pos is not None:
+                self.title_index[sid] = max(0, min(pos, len(title)))
+        return {
+            "html": self._html_with_carets(text),
+            "markdown": text,
+            "indexes": dict(self.indexes),
+            "title": title,
+            "title_index": dict(self.title_index),
+        }
 
     
     async def save_doc(self) -> None:
         async with self.lock:
             try:
-                save_doc_to_path(self.doc, DOCS_DIR / f"{self.file_id}")
+                save_doc_to_path(self.doc, DOCS_DIR / f"{self.file_id}.crdt")
                 return {"ok": True}
             except:
                 raise SaveDocumentError
