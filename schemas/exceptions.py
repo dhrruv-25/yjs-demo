@@ -38,3 +38,9 @@ class SessionNotFoundError(Exception):
 
 class SessionNotEmptyError(Exception):
     message = "Session is not empty"
+
+class UserAlreadyConnectedError(Exception):
+    message = "User already connected"
+
+class UserNotConnectedError(Exception):
+    message = "User not connected"

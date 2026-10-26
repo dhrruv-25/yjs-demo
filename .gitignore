@@ -6,5 +6,6 @@ plan.md
 documents/
 playground.ipynb
 bug_report.md
-schemas/*
-controller/*
+example.log
+requirements.md
+.DS_Store

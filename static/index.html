@@ -6,7 +6,15 @@
   <title>Editor</title>
   <style>
     html, body { margin: 0; height: 100%; background: #12110f; color: #f3eadc; font: 18px/1.7 Georgia, "Times New Roman", serif; }
-    .split { display: grid; grid-template-columns: 1fr 1px 1fr; height: 100%; }
+    body { display: flex; flex-direction: column; }
+    .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 28px; background: #1a1814; border-bottom: 1px solid #2c2823; }
+    .title-wrap { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    #doc-title { margin: 0; font-size: 22px; font-weight: normal; }
+    #title-input { display: none; width: 16rem; padding: 0; border: 0; border-bottom: 1px solid #f3eadc; background: transparent; color: inherit; font: inherit; font-size: 22px; outline: none; }
+    #title-input.open { display: inline-block; }
+    #edit-title { display: inline-flex; padding: 4px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+    #save { border: 0; border-radius: 4px; background: #f3eadc; color: #12110f; font: inherit; padding: 6px 18px; cursor: pointer; }
+    .split { display: grid; grid-template-columns: 1fr 1px 1fr; flex: 1; min-height: 0; }
     .divider { background: #2c2823; }
     #editor, #preview { box-sizing: border-box; height: 100%; margin: 0; padding: 28px 40px; background: #1f1c18; color: #f3eadc; font: inherit; }
     #editor { border: 0; outline: none; resize: none; white-space: pre-wrap; }
@@ -24,6 +32,14 @@
   </style>
 </head>
 <body>
+  <header class="bar">
+    <div class="title-wrap">
+      <h1 id="doc-title"></h1>
+      <input id="title-input" autocomplete="off" />
+      <button id="edit-title" type="button" aria-label="Edit title"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
+    </div>
+    <button id="save" type="button">Save</button>
+  </header>
   <div class="split">
     <textarea id="editor" spellcheck="false" placeholder="Start writing…"></textarea>
     <div class="divider"></div>
@@ -33,6 +49,75 @@
   <script>
     const editor = document.getElementById("editor");
     const preview = document.getElementById("preview");
+    const fileId = decodeURIComponent(location.pathname.split("/").pop() || "").replace(/\.crdt$/, "");
+    const titleEl = document.getElementById("doc-title");
+    const titleInput = document.getElementById("title-input");
+    const editTitle = document.getElementById("edit-title");
+    titleEl.textContent = sessionStorage.getItem("doc-title:" + fileId) || "Untitled";
+    let titleText = titleEl.textContent;
+
+    function closeTitle() {
+      titleInput.classList.remove("open");
+      titleEl.hidden = false;
+      titleEl.textContent = titleText || "Untitled";
+    }
+
+    editTitle.addEventListener("click", () => {
+      titleInput.value = titleText;
+      titleEl.hidden = true;
+      titleInput.classList.add("open");
+      titleInput.focus();
+      titleInput.select();
+    });
+
+    function commitTitle() {
+      closeTitle();
+    }
+
+    titleInput.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeTitle();
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (!socket.connected) titleText = titleInput.value.trim() || "Untitled";
+        closeTitle();
+        return;
+      }
+      if (!socket.connected || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      const start = titleInput.selectionStart;
+      const end = titleInput.selectionEnd;
+      if (event.key === "Backspace" || event.key === "Delete") {
+        event.preventDefault();
+        if (start !== end) return editTitleRange(start, end, "");
+        if (event.key === "Backspace" && start > 0) return editTitleRange(start - 1, start, "");
+        if (event.key === "Delete" && start < titleText.length) return editTitleRange(start, start + 1, "");
+        return;
+      }
+      if (event.key.length !== 1) return;
+      event.preventDefault();
+      editTitleRange(start, end, event.key);
+    });
+
+    titleInput.addEventListener("paste", (event) => {
+      if (!socket.connected) return;
+      const text = (event.clipboardData.getData("text/plain") || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      if (!text) return;
+      event.preventDefault();
+      editTitleRange(titleInput.selectionStart, titleInput.selectionEnd, text);
+    });
+
+    titleInput.addEventListener("blur", () => {
+      if (!titleInput.classList.contains("open")) return;
+      closeTitle();
+    });
+
+    document.getElementById("save").addEventListener("click", () => {
+      if (titleInput.classList.contains("open")) commitTitle();
+      fetch(`/documents/${fileId}/save`, { method: "POST" });
+    });
     const socket = io();
     let index = 0;
     let anchor = null;
@@ -67,7 +152,19 @@
       show(message);
       if (pending > 0) return;
       markdown = message.markdown || "";
-      if (anchor == null) adopt(message);
+      if (typeof message.title === "string") {
+        titleText = message.title;
+        titleEl.textContent = titleText || "Untitled";
+        sessionStorage.setItem("doc-title:" + fileId, titleEl.textContent);
+        if (document.activeElement === titleInput) {
+          const at = message.title_index && message.title_index[socket.id];
+          titleInput.value = titleText;
+          if (at != null) titleInput.setSelectionRange(at, at);
+        }
+      }
+      const docAt = message.indexes ? message.indexes[socket.id] : null;
+      if (docAt == null) return;
+      if (anchor == null) index = docAt;
       if (index > markdown.length) index = markdown.length;
       if (anchor != null) anchor = Math.max(0, Math.min(anchor, markdown.length));
       if (anchor === index) anchor = null;
@@ -79,6 +176,15 @@
       else place(Math.min(anchor, index), Math.max(anchor, index));
     }
 
+    function editTitleRange(start, end, text) {
+      if (start !== end) send("title_keystroke", { op: "delete", index: start, count: end - start });
+      if (text) send("title_keystroke", { op: "add", index: start, char: text });
+      titleText = titleText.slice(0, start) + text + titleText.slice(end);
+      const at = start + text.length;
+      titleInput.value = titleText;
+      titleInput.setSelectionRange(at, at);
+    }
+
     function ack() {
       pending -= 1;
       if (pending === 0 && latest) paint(latest);
@@ -87,6 +193,82 @@
     function send(name, data) {
       pending += 1;
       socket.emit(name, data, ack);
+    }
+
+    const undoStack = [];
+    const redoStack = [];
+    let applyingHistory = false;
+    let historyHandled = false;
+
+    function rememberEdit(at, removed, added) {
+      if (applyingHistory) return;
+      const last = undoStack.at(-1);
+      if (
+        last &&
+        removed === "" &&
+        last.removed === "" &&
+        added.length === 1 &&
+        added !== "\n" &&
+        last.index + last.added.length === at
+      ) {
+        last.added += added;
+      } else if (
+        last &&
+        added === "" &&
+        last.added === "" &&
+        removed.length === 1 &&
+        removed !== "\n" &&
+        !last.removed.includes("\n") &&
+        last.index === at + 1
+      ) {
+        last.index = at;
+        last.removed = removed + last.removed;
+      } else if (
+        last &&
+        added === "" &&
+        last.added === "" &&
+        !removed.includes("\n") &&
+        !last.removed.includes("\n") &&
+        last.index + last.removed.length === at
+      ) {
+        last.removed += removed;
+      } else {
+        undoStack.push({ index: at, removed, added });
+      }
+      redoStack.length = 0;
+    }
+
+    function writeEdit(at, deleteCount, insertText) {
+      applyingHistory = true;
+      if (deleteCount) send("keystroke", { op: "delete", index: at, count: deleteCount });
+      if (insertText) send("keystroke", { op: "add", index: at, char: insertText });
+      markdown = markdown.slice(0, at) + insertText + markdown.slice(at + deleteCount);
+      index = at + insertText.length;
+      anchor = null;
+      place(index);
+      applyingHistory = false;
+    }
+
+    function undoEdit() {
+      const entry = undoStack.pop();
+      if (!entry) return;
+      redoStack.push(entry);
+      writeEdit(entry.index, entry.added.length, entry.removed);
+    }
+
+    function redoEdit() {
+      const entry = redoStack.pop();
+      if (!entry) return;
+      undoStack.push(entry);
+      writeEdit(entry.index, entry.removed.length, entry.added);
+    }
+
+    function runHistory(redo) {
+      if (historyHandled) return;
+      historyHandled = true;
+      queueMicrotask(() => { historyHandled = false; });
+      if (redo) redoEdit();
+      else undoEdit();
     }
 
     function rememberSelection() {
@@ -102,6 +284,7 @@
     }
 
     function insert(start, end, char) {
+      rememberEdit(start, markdown.slice(start, end), char);
       if (start !== end) send("keystroke", { op: "delete", index: start, count: end - start });
       send("keystroke", { op: "add", index: start, char });
       markdown = markdown.slice(0, start) + char + markdown.slice(end);
@@ -111,6 +294,7 @@
     }
 
     function removeRange(start, end) {
+      rememberEdit(start, markdown.slice(start, end), "");
       send("keystroke", { op: "delete", index: start, count: end - start });
       markdown = markdown.slice(0, start) + markdown.slice(end);
       index = start;
@@ -121,6 +305,7 @@
     socket.on("render", paint);
 
     function backspaceAt(start) {
+      rememberEdit(start - 1, markdown.slice(start - 1, start), "");
       send("keystroke", { op: "backspace", index: start });
       markdown = markdown.slice(0, start - 1) + markdown.slice(start);
       index = start - 1;
@@ -133,7 +318,14 @@
     }
 
     editor.addEventListener("keydown", (event) => {
-      if (!socket.connected || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
+      if (!socket.connected || event.isComposing) return;
+      const key = event.key.toLowerCase();
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && (key === "z" || key === "y")) {
+        event.preventDefault();
+        runHistory(key === "y" || event.shiftKey);
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
       const start = editor.selectionStart;
       const end = editor.selectionEnd;
       if (event.key === "Backspace" || event.key === "Delete") {
@@ -155,7 +347,13 @@
     });
 
     editor.addEventListener("beforeinput", (event) => {
-      if (!socket.connected || event.defaultPrevented) return;
+      if (!socket.connected) return;
+      if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+        event.preventDefault();
+        runHistory(event.inputType === "historyRedo");
+        return;
+      }
+      if (event.defaultPrevented) return;
       const start = editor.selectionStart;
       const end = editor.selectionEnd;
       if (event.inputType === "insertFromPaste" || event.inputType === "insertFromDrop") {

@@ -6,14 +6,151 @@
   <title>Documents</title>
   <style>
     body { margin: 0; background: #12110f; color: #f3eadc; font: 18px/1.7 Georgia, "Times New Roman", serif; }
-    ul { list-style: none; margin: 0; padding: 28px 40px; }
+    header { display: flex; align-items: center; gap: 16px; padding: 28px 40px 0; }
+    ul { list-style: none; margin: 0; padding: 16px 40px 28px; }
     a { color: inherit; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 4px 0;
+      padding: 4px 10px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+    }
+    li:hover, li:focus-within { border-color: #f3eadc; }
+    .edit, .delete {
+      display: none;
+      padding: 4px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+    }
+    .edit { margin-left: auto; }
+    li:hover .edit, li:focus-within .edit,
+    li:hover .delete, li:focus-within .delete { display: inline-flex; }
+    .rename {
+      flex: 1;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      border-bottom: 1px solid #f3eadc;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      outline: none;
+    }
+    #create, #new-title {
+      font: inherit;
+      color: inherit;
+    }
+    #create {
+      width: 36px;
+      height: 36px;
+      border: 1px solid #f3eadc;
+      border-radius: 6px;
+      background: transparent;
+      cursor: pointer;
+    }
+    #new-title {
+      display: none;
+      min-width: 16rem;
+      padding: 4px 0;
+      border: 0;
+      border-bottom: 1px solid #f3eadc;
+      background: transparent;
+      outline: none;
+    }
+    #new-title.open { display: inline-block; }
   </style>
 </head>
 <body>
+  <header>
+    <button id="create" type="button" aria-label="New document">+</button>
+    <input id="new-title" placeholder="Document title" autocomplete="off" />
+  </header>
   <ul id="docs">
     <!--FILES-->
   </ul>
+  <script>
+    const create = document.getElementById("create");
+    const titleInput = document.getElementById("new-title");
+
+    function objectId() {
+      const bytes = new Uint8Array(12);
+      crypto.getRandomValues(bytes);
+      return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    }
+
+    function idFromHref(href) {
+      return decodeURIComponent(href.split("/").pop() || "").replace(/\.crdt$/, "");
+    }
+
+    create.addEventListener("click", () => {
+      titleInput.classList.add("open");
+      titleInput.focus();
+    });
+
+    titleInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault(); 
+      const title = titleInput.value.trim();
+      if (!title) return;
+      const id = objectId();
+      fetch(`/create-file/${id}/${title}`, { method: "PUT" }).finally(() => location.reload());
+    });
+
+    // function beginRename(item, link, id) {
+    //   if (item.querySelector(".rename")) return;
+    //   const input = document.createElement("input");
+    //   input.className = "rename";
+    //   input.value = link.textContent.trim();
+    //   input.setAttribute("aria-label", "New title");
+    //   link.hidden = true;
+    //   item.insertBefore(input, link);
+    //   input.focus();
+    //   input.select();
+    //   input.addEventListener("keydown", (event) => {
+    //     if (event.key === "Escape") {
+    //       event.preventDefault();
+    //       input.remove();
+    //       link.hidden = false;
+    //       return;
+    //     }
+    //     if (event.key !== "Enter") return;
+    //     event.preventDefault();
+    //     const title = input.value.trim();
+    //     if (!title) return;
+    //     fetch(`/set-title/${id}/${encodeURIComponent(title)}`, { method: "POST" }).finally(() => location.reload());
+    //   });
+    // }
+
+    document.querySelectorAll("#docs li").forEach((item) => {
+      const link = item.querySelector("a");
+      if (!link) return;
+      const id = idFromHref(link.getAttribute("href") || "");
+      link.addEventListener("click", () => {
+        sessionStorage.setItem("doc-title:" + id, link.textContent);
+      });
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "edit";
+      edit.setAttribute("aria-label", "Edit");
+      edit.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
+      edit.addEventListener("click", () => beginRename(item, link, id));
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "delete";
+      button.setAttribute("aria-label", "Delete");
+      button.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h5v2H3V5h5l1-2zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM6 9h2v9H6V9z"/></svg>';
+      button.addEventListener("click", () => {
+        fetch(`/documents/${id}`, { method: "DELETE" }).finally(() => location.reload());
+      });
+      item.appendChild(edit);
+      item.appendChild(button);
+    });
+  </script>
 </body>
 </html>

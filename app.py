@@ -6,16 +6,17 @@ import socket
 import subprocess
 from html import escape
 from pathlib import Path
-
+from http.cookies import SimpleCookie
 import pycrdt as cr
 import socketio
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import logging
+from bson import ObjectId
 
 
-from helper import (
+from operations.helper import (
     handle_doc_changes,
     parse_doc_to_md_arr,
     parse_md_arr_to_md_str,
@@ -27,7 +28,20 @@ from helper import (
     parse_html_to_doc,
     get_doc_copy_from_path,
     save_doc_to_path,
+    get_title_from_path,
+    delete_doc_from_path,
+    create_doc_from_path,
+    set_title_to_doc_from_path,
     )
+
+from controller.sessions_manager import SessionsManager
+
+from schemas.exceptions import (
+    SaveDocumentError, 
+    UserAlreadyConnectedError,
+    UserNotConnectedError,
+    SessionNotFoundError
+)
 
 
 log = logging.getLogger(__name__)
@@ -39,128 +53,32 @@ COLORS = ("#7aa2f7", "#9ece6a", "#f7768e", "#bb9af7", "#7dcfff")
 DOC = cr.Doc()
 DOC["markdown_arr"] = cr.Array()
 indexes: dict[str, int] = {}
+cookies_dict = {}
 lock = asyncio.Lock()
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 api = FastAPI()
 app = socketio.ASGIApp(sio, api)
 
-
-def apply_keystroke(op: str, index: int, char: str, count: int = 1) -> None: 
-    """
-    Applies a keystroke operation to the document.
-    """
-    arr = parse_doc_to_md_arr(DOC)
-    index = max(0, min(index, len(arr)))
-    with DOC.transaction():
-        if op == "backspace":
-            if index > 0:
-                del arr[index - 1]
-            return
-        if op == "delete":
-            count = max(0, min(count, len(arr) - index))
-            for offset in range(count - 1, -1, -1):
-                del arr[index + offset]
-            return
-        for offset, ch in enumerate(char):
-            arr.insert(index + offset, ch)
-
-
-def shift_for_delete(author: str, start: int, count: int) -> None: 
-    """
-    Shifts the cursor position of other users after a delete operation.
-    * This function edits the index object in session memory. *
-    """
-    end = start + count
-    for sid, pos in indexes.items():
-        if sid == author:
-            continue
-        if pos >= end:
-            indexes[sid] = pos - count
-        elif pos > start:
-            indexes[sid] = start
-    indexes[author] = start
-
-
-def marker(sid: str) -> str:
-
-    """
-    Adds a colored caret to the document to indicate the cursor position of each user
-    """
-    color = COLORS[sum(sid.encode()) % len(COLORS)]
-    return f'<span class="caret" data-sid="{escape(sid, quote=True)}" style="--c:{color}"></span>'
-
-
-BR_BEFORE = re.compile(r"<br\s*/?\s*>[ \t]*$", re.IGNORECASE)       
-
-
-def with_line_breaks(text: str) -> tuple[str, list[int]]:
-    """
-    Put a <br> before each newline that does not already have one.
-    Renders the 2D page into a 1D line and maps the position of each character by jumping positions in the 1D line at every linebreak.
-    """
-    pieces: list[str] = []
-    mapping = [0]
-    size = 0
-    for index, char in enumerate(text):
-        if char == "\n" and not BR_BEFORE.search(text[:index]): # check if char is /n and whether the text uptill {:index} has a <br> at its end. Basically if a user asks for a new line inline
-            pieces.append("<br>")
-            size += 4
-        pieces.append(char)
-        size += 1
-        mapping.append(size)
-    return "".join(pieces), mapping
-
-
-def html_with_carets(text: str) -> str:
-    """
-    Adds carets to the document to indicate the cursor position of each user
-    """
-    expanded, mapping = with_line_breaks(text)
-    chars = list(expanded)
-    placed = []
-    for sid, pos in indexes.items():
-        pos = max(0, min(pos, len(text)))
-        placed.append((mapping[pos], sid))
-    for at, sid in sorted(placed, reverse=True):
-        chars.insert(at, marker(sid))
-    return parse_md_str_to_html("".join(chars))
-
-
-def shift_others(author: str, at: int, delta: int) -> None:
-    """
-    Shifts the cursor position of other users after a keystroke operation.
-    * This function edits the index object in session memory. *
-    """
-    for sid, pos in indexes.items():
-        if sid != author and pos >= at:
-            indexes[sid] = max(0, pos + delta)
-
-
-async def broadcast() -> None:
-    """
-    Broadcasts the document to all users in the session.
-    * This function edits the index object in session memory. *
-    """
-    text = parse_doc_to_md_str(DOC)
-    for sid in indexes:
-        indexes[sid] = max(0, min(indexes[sid], len(text)))
-    await sio.emit(
-        "render",
-        {"html": html_with_carets(text), "markdown": text, "indexes": dict(indexes)},
-    )
-
+session_manager = SessionsManager()
 
 @sio.event
 async def connect(sid, _environ):
     """
     Connects a user to the session. initializes the index object in session memory.
-    * This function edits the index object in session memory. *
+    * This function edits the index object in session memory.*
     """
-    async with lock:
-        indexes[sid] = len(parse_doc_to_md_str(DOC))
-        log.info(f"User {sid} connected")
-        await broadcast()
+    try:
+        cookie = SimpleCookie(_environ.get("HTTP_COOKIE"))
+        cookies_dict[sid] = cookie.get("session_id")
+        filename = ObjectId(Path(_environ.get("HTTP_REFERER", "")).name.split('.crdt')[0])
+        await sio.emit("render", await (await session_manager.connect_user(sid, filename)).broadcast())
+        print('connected', sid)
+        return {"ok": True}
+    except UserAlreadyConnectedError:
+        return False 
+    except FileNotFoundError:
+        return False
 
 
 @sio.event
@@ -170,9 +88,13 @@ async def disconnect(sid):
     * This function edits the index object in session memory. *
     """
     async with lock:
-        indexes.pop(sid, None)
+        cookies_dict.pop(sid, None)
         log.info(f"User {sid} disconnected")
-        await broadcast()
+        final_state = await (await session_manager.get_user_session(sid)).broadcast()
+        await session_manager.drop_user_session(sid)
+        await sio.emit("render", final_state)
+        print('disconnect', sid)
+        return {"ok": True}
 
 
 @sio.event
@@ -181,38 +103,37 @@ async def keystroke(sid, data):
     Handles a keystroke operation.
     * This function edits the index object in session memory. *
     """
-    async with lock:
-        if not isinstance(data, dict):
-            return {"ok": False}
-        try:
-            index = int(data.get("index", 0))
-        except (TypeError, ValueError):
-            return {"ok": False}
-        index = max(0, min(index, len(parse_doc_to_md_str(DOC))))
-        op = data.get("op")
-        char = data.get("char") or ""
-        if op == "backspace" and index > 0:
-            apply_keystroke("backspace", index, "")
-            shift_others(sid, index, -1)
-            indexes[sid] = index - 1
-        elif op == "delete":
-            try:
-                count = int(data.get("count", 0))
-            except (TypeError, ValueError):
-                return {"ok": False}
-            count = max(0, min(count, len(parse_doc_to_md_str(DOC)) - index)) #user can delete everything to the right of the cursor
-            if count <= 0:
-                return {"ok": False}
-            apply_keystroke("delete", index, "", count)
-            shift_for_delete(sid, index, count)
-        elif op == "add" and isinstance(char, str) and char:
-            apply_keystroke("add", index, char)
-            shift_others(sid, index, len(char))
-            indexes[sid] = index + len(char)
-        else:
-            return {"ok": False}
-        await broadcast()
-        return {"ok": True}
+
+    try:
+        emit = await (await session_manager.get_user_session(sid)).keystroke(sid, data)
+    except Exception as e:
+        print('error', e)
+        return {"ok": False}
+    if not emit or emit.get("ok") is False:
+        return {"ok": False}
+
+    await sio.emit("render", emit)
+    print('emit', emit)
+    return {"ok": True}
+
+
+@sio.event
+async def title_keystroke(sid, data):
+    """
+    Handles a keystroke in the document title.
+    Moves the author from the document cursor to title_index.
+    """
+    try:
+        emit = await (await session_manager.get_user_session(sid)).title_keystroke(sid, data)
+    except Exception as e:
+        print('error', e)
+        return {"ok": False}
+    if not emit or emit.get("ok") is False:
+        return {"ok": False}
+
+    await sio.emit("render", emit)
+    print('emit', emit)
+    return {"ok": True}
 
 
 @sio.event
@@ -221,17 +142,17 @@ async def cursor(sid, data):
     Handles a cursor operation.
     * This function edits the index object in session memory. *
     """
-    async with lock:
-        if sid not in indexes or not isinstance(data, dict):
-            return {"ok": False}
-        try:
-            index = int(data.get("index", 0))
-        except (TypeError, ValueError):
-            return {"ok": False}
-        text = parse_doc_to_md_str(DOC)
-        indexes[sid] = max(0, min(index, len(text)))
-        await broadcast()
-        return {"ok": True}
+    try:
+        emit = await (await session_manager.get_user_session(sid)).cursor(sid, data)
+    except Exception as e:
+        print('error', e)
+        return {"ok": False}
+    if not emit or emit.get("ok") is False:
+        return {"ok": False}
+
+    await sio.emit("render", emit)
+    print('emit', emit)
+    return {"ok": True}
 
 
 @api.get("/")
@@ -241,12 +162,21 @@ async def page():
     """
     folder = ROOT / "documents"
     items = [
-        f'<li><a href="/documents/{escape(path.name)}">{escape(path.stem)}</a></li>'
+        f'<li><a href="/documents/{escape(path.name)}">{escape(get_title_from_path(str(path)))}</a></li>'
         for path in sorted(folder.iterdir())
         if path.is_file()
     ]
     html = (ROOT / "static" / "docs-dir.html").read_text().replace("<!--FILES-->", "\n".join(items))
-    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+    response = HTMLResponse(html, headers={"Cache-Control": "no-store"})
+    response.set_cookie(
+        key="session_id",
+        value=str(ObjectId()),
+        httponly=True,   # JavaScript can't read it
+        secure=True,     # Only sent over HTTPS
+        samesite="lax",  # Limits cross-site sending
+        max_age=3600,    # Lifetime in seconds
+    )
+    return response
 
 
 @api.get("/documents/{filename}")
@@ -258,11 +188,56 @@ async def document(filename: str):
     global DOC
     doc_path = ROOT / "documents" / filename
     if not doc_path.exists() or not doc_path.is_file():
-        return {"error": "Document not found"}, 404
+        return JSONResponse({"error": "Document not found"}, status_code=404)
     DOC = get_doc_copy_from_path(doc_path)
     return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-store"})
 
 api.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+
+
+@api.post("/documents/{filename}/save")
+async def save_document(filename: str):
+    """
+    Saves the document to the file system.
+    """
+    try:
+        await (await session_manager._get_markdown_session(ObjectId(filename))).save_doc()
+    except SaveDocumentError:
+        return JSONResponse({"error": "Failed to save document"}, status_code=500)
+    except SessionNotFoundError:
+        return JSONResponse({"error": "Document not found"}, status_code=404)
+    return {"ok": True}
+
+
+@api.delete("/documents/{filename}")
+async def delete_document(filename: str):
+    """
+    Deletes the document from the file system.
+    """
+    filename = f'{filename}.crdt'
+    delete_doc_from_path(str(ROOT / "documents" / filename))
+    return {"ok": True}
+
+
+@api.put("/create-file/{filename}/{title}")
+async def create_document(filename: str, title: str):
+    """
+    Creates a new document in the file system.
+    """
+    filename = f'{filename}.crdt'
+    create_doc_from_path(str(ROOT / "documents" / filename))
+    set_title_to_doc_from_path(str(ROOT / "documents" / filename), title)
+    return {"ok": True}
+
+
+@api.post("/set-title/{filename}/{title}")
+async def set_title(filename: str, title: str):
+    """
+    Sets the title of the document in the file system.
+    """
+    filename = f'{filename}.crdt'
+    set_title_to_doc_from_path(str(ROOT / "documents" / filename), title)
+    return {"ok": True}
 
 
 def lan_address() -> str:

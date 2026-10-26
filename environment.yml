@@ -21,3 +21,4 @@ dependencies:
       - markdown-it-py==4.2.0
       - python-socketio==5.17.0
       - logging
+      - pytest==8.4.2
