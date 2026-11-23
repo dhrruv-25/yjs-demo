@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Editor</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="/static/socket.io.min.js"></script>
+  <script type="module" src="/static/editor.js"></script>
+</head>
+<body class="editor-page">
+  <div class="toolbar">
+    <a href="/" title="All documents">&larr; Documents</a>
+    <span id="status">connecting</span>
+    <span id="peers"></span>
+    <span class="spacer"></span>
+    <button id="undo" type="button" title="Undo (Cmd/Ctrl+Z)" disabled>Undo</button>
+    <button id="redo" type="button" title="Redo (Cmd/Ctrl+Shift+Z)" disabled>Redo</button>
+    <button id="offline" type="button" title="Simulate losing the connection">Go offline</button>
+    <button id="save" type="button" title="Save to disk (PUT)">Save</button>
+  </div>
+  <div class="panes">
+    <div class="pane">
+      <div class="editor-wrap">
+        <pre id="overlay" aria-hidden="true"></pre>
+        <textarea id="editor" spellcheck="false" autocomplete="off" placeholder="Start typing markdown…" disabled></textarea>
+      </div>
+    </div>
+    <div class="pane">
+      <div id="preview-mode"></div>
+      <article id="preview"></article>
+    </div>
+  </div>
+</body>
+</html>

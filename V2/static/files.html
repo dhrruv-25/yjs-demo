@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Documents</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="files">
+  <header>
+    <h1>Documents</h1>
+    <button id="create" type="button" aria-label="New document" title="New document">+</button>
+  </header>
+  <ul id="docs"></ul>
+  <script>
+    const list = document.getElementById("docs");
+    const trash = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h5v2H3V5h5l1-2zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM6 9h2v9H6V9z"/></svg>';
+
+    async function load() {
+      const files = await (await fetch("/api/files")).json();
+      list.replaceChildren();
+      if (!files.length) {
+        list.innerHTML = '<li class="empty">No documents yet. Press + to create one.</li>';
+        return;
+      }
+      for (const file of files) {
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = `/files/${file.id}`;
+        link.textContent = file.title;
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = new Date(file.modified * 1000).toLocaleString();
+        const remove = document.createElement("button");
+        remove.className = "delete";
+        remove.type = "button";
+        remove.title = "Delete";
+        remove.setAttribute("aria-label", `Delete ${file.title}`);
+        remove.innerHTML = trash;
+        remove.addEventListener("click", async () => {
+          if (!confirm(`Delete "${file.title}"?`)) return;
+          const response = await fetch(`/api/files/${file.id}`, { method: "DELETE" });
+          if (!response.ok) alert((await response.json()).detail);
+          load();
+        });
+        item.append(link, meta, remove);
+        list.append(item);
+      }
+    }
+
+    document.getElementById("create").addEventListener("click", async () => {
+      const { id } = await (await fetch("/api/files", { method: "POST" })).json();
+      location.href = `/files/${id}`;
+    });
+
+    load();
+  </script>
+</body>
+</html>

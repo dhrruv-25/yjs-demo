@@ -1,36 +1,51 @@
-from ..schema.InMemoryDoc import InMemoryDoc, TransactionDTO
-from ..schema.RelayNetwork import RelayNetwork
-from pycrdt import TransactionEvent
-from file_ops import get_update
+from __future__ import annotations
 
-def publish(sender: str, network: RelayNetwork, transaction: TransactionEvent):
+import logging
+from typing import TYPE_CHECKING
+
+from pycrdt import TransactionEvent
+
+from V2.operations.file_ops import get_update
+from V2.schema.InMemoryDoc import RELAY
+
+if TYPE_CHECKING:
+    from V2.schema.RelayNetwork import RelayNetwork
+
+log = logging.getLogger(__name__)
+
+
+def publish(sender: str, network: RelayNetwork, update: bytes):
     for peer in network.nodes.keys():
         if peer != sender:
-            network._relay_queue.put_nowait((peer, transaction.update))
+            network._relay_queue.put_nowait((peer, update))
+
 
 def pull(puller: str, network: RelayNetwork):
-    for peer in network.nodes.keys():
-        if peer != puller:
-            network._relay_queue.put_nowait((puller, get_update(network.nodes[puller], network.nodes[peer])))
+    """Bring a joining doc up to date with the network. Every peer holds the same state, so one is enough."""
+    doc = network.nodes[puller]
+    peer = next((node for sid, node in network.nodes.items() if sid != puller), None)
+    if peer is not None:
+        doc.apply_update(get_update(doc, peer), origin=RELAY)
+
 
 def _make_observer(sender: str, network: RelayNetwork):
     def on_update(transaction: TransactionEvent):
-        if sender in network._applying or not transaction.update:
+        doc = network.nodes.get(sender)
+        if doc is None or doc.origin == RELAY:
             return
-        network.publish(sender, network, transaction)
+        publish(sender, network, transaction.update)
     return on_update
 
+
 async def run(network: RelayNetwork):
-    """Apply incoming updates. Runs as a background task per peer."""
+    """Apply relayed updates in order. Runs as one background task per network."""
     while True:
         sid, update = await network._relay_queue.get()
-        doc = network.nodes[sid]
-        if doc is None:
-            continue
-        network._applying.add(sid)
         try:
-            # Observers fire synchronously here, so the guard covers them
-            doc.apply_update(update)
+            doc = network.nodes.get(sid)
+            if doc is not None:
+                doc.apply_update(update, origin=RELAY)
+        except Exception:
+            log.exception("relay to %s failed", sid)
         finally:
-            network._applying.discard(sid)
-
+            network._relay_queue.task_done()

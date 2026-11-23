@@ -61,16 +61,16 @@ Desging Choices:
     Socket Events:
         - Since the backend and frontend maintain their own docs, the only events and emits are transactions. 
 
-    To be implemented:
-        - Per socketID StickyIndexes. 
-        - UndoManager and RedoManger - use pyCRDT undo manager or simply subscribe/unsubscribe from buffer. 
-        - Array operations:
-            - The markdowns are operated by keystrokes whose plumbing needs to be implemented. Components may be inherited from v1. 
-        - Buffer draining. For testing, let the buffer overflow. 
-        - md renderer from v1.
+    Implemented (single instance; run with `uvicorn V2.app:app --port 8001`):
+        - Socket events: `sync` (handshake: client state vector in, missing update + server state vector out), `update` (binary, with undo/redo flags), `render` (server -> room).
+        - Per socketID StickyIndexes: cursor[sid] = {user_id, color, line, col}, where line/col are encoded sticky indexes (Yjs relative positions decode with pyCRDT StickyIndex). Foreign cursor writes are reverted; cursors are removed on disconnect and cleared when a file is first opened.
+        - Undo/Redo: client-side Y.UndoManager tracking only local-origin transactions, so it never touches other sessions and does not outlive the page.
+        - Array operations: the textarea diff of each input event becomes one transaction on the Array<Text> line model (split on Enter, merge on Backspace at column 0).
+        - Buffer draining: InMemoryDoc owns its buffer; RelayNetwork drains every V2_DRAIN_SECONDS (0 disables, letting the buffer grow), on save and on leave. Consecutive DTOs with the same undo/redo flags are merged with merge_updates into one history entry.
+        - md renderer from v1 (server side); markdown-it in the browser while offline.
+        - V1 documents (markdown_arr) are migrated into 'md' lines on first load.
 
 Still to be done:
-- How to drain the buffer? 
-    - Do we drain through InMemoryDoc or RelayNetwork? 
-    - How do we compress transactions? Over keystrokes or time deltas?
-    - Currnently there is no persistence requirement on undos and redos.
+- History lives inside the synced doc, so every client downloads it. Consider moving it to a separate doc/file.
+- Offline edits only survive while the page stays open (no IndexedDB persistence yet).
+- Redis pub/sub cross-instance fan-out.
