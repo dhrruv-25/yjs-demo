@@ -1,0 +1,3 @@
+cp3 = cr.Doc(client_id=cp1.client_id)
+cp3.apply_update(cp1.get_update())
+cp3.client_id == cp1.client_id

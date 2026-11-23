@@ -7706,3 +7706,6 @@ INFO:httpx:HTTP Request: POST http://test/documents/6adf6cd98c6ec88101391c91/sav
 INFO:httpx:HTTP Request: POST http://test/documents/6adf6cd98c6ec88101391c92/save "HTTP/1.1 404 Not Found"
 INFO:httpx:HTTP Request: POST http://test/documents/6adf6cd98c6ec88101391c93/save "HTTP/1.1 500 Internal Server Error"
 INFO:app:User sid-1 disconnected
+INFO:__main__:User f8pJ8K7pQCWAmTfqAAAB disconnected
+INFO:__main__:User 3bCMrZGV3j1J8ha7AAAD disconnected
+INFO:__main__:User 9lOV50wHgXVUq4mmAAAF disconnected

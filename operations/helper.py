@@ -24,7 +24,7 @@ def parse_doc_to_md_arr(doc: cr.Doc):
     return doc.get("markdown_arr", type=cr.Array)
 
 
-def parse_md_arr_to_md_str(md_arr: list[str]):
+def parse_md_arr_to_md_str(md_arr: list[str]): 
     return "".join(md_arr)
 
 

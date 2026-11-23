@@ -63,7 +63,7 @@ app = socketio.ASGIApp(sio, api)
 session_manager = SessionsManager()
 
 @sio.event
-async def connect(sid, _environ):
+async def connect(sid, file_id, _environ):
     """
     Connects a user to the session. initializes the index object in session memory.
     * This function edits the index object in session memory.*
@@ -72,6 +72,7 @@ async def connect(sid, _environ):
         cookie = SimpleCookie(_environ.get("HTTP_COOKIE"))
         cookies_dict[sid] = cookie.get("session_id")
         filename = ObjectId(Path(_environ.get("HTTP_REFERER", "")).name.split('.crdt')[0])
+        await sio.enter_room(sid, str(filename))
         await sio.emit("render", await (await session_manager.connect_user(sid, filename)).broadcast())
         print('connected', sid)
         return {"ok": True}
@@ -168,14 +169,6 @@ async def page():
     ]
     html = (ROOT / "static" / "docs-dir.html").read_text().replace("<!--FILES-->", "\n".join(items))
     response = HTMLResponse(html, headers={"Cache-Control": "no-store"})
-    response.set_cookie(
-        key="session_id",
-        value=str(ObjectId()),
-        httponly=True,   # JavaScript can't read it
-        secure=True,     # Only sent over HTTPS
-        samesite="lax",  # Limits cross-site sending
-        max_age=3600,    # Lifetime in seconds
-    )
     return response
 
 
