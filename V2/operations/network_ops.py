@@ -5,13 +5,13 @@ from file_ops import get_update
 
 def publish(sender: str, network: RelayNetwork, transaction: TransactionEvent):
     for peer in network.nodes.keys():
-        if peer is not sender:
-            network._relay_queue.get_nowait((peer, transaction.update))
+        if peer != sender:
+            network._relay_queue.put_nowait((peer, transaction.update))
 
 def pull(puller: str, network: RelayNetwork):
     for peer in network.nodes.keys():
-        if peer is not puller:
-            network._relay_queue.get_nowait((puller, get_update(network.nodes[puller], network.nodes[peer])))
+        if peer != puller:
+            network._relay_queue.put_nowait((puller, get_update(network.nodes[puller], network.nodes[peer])))
 
 def _make_observer(sender: str, network: RelayNetwork):
     def on_update(transaction: TransactionEvent):

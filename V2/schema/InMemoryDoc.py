@@ -12,7 +12,7 @@ class InMemoryDoc:
     def __init__(self, sid : int, user_id : str, doc_id : str | None = None) -> None:
         self.sid = sid
         self.user_id = user_id
-        self.file_id = doc_id if not None else uuid.uuid1()
+        self.file_id = uuid.uuid1() if doc_id is None else doc_id
         self.Doc: Doc = Doc_constructor(doc_id=doc_id)
         self._buffer: Dict[datetime, TransactionDTO] = {}
         self._subscriptions: list[str] = []

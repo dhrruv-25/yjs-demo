@@ -13,6 +13,7 @@ def Doc_template():
     Doc_template = Doc()
     Doc_template['md'] = Array()
     Doc_template['history'] = Map()
+    Doc_template['cursor'] = Map()
 
     return Doc_template
 
