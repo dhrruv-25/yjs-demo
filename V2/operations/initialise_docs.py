@@ -8,17 +8,17 @@ docs_dir = Path(__file__).resolve().parents[2] / "documents"
 def doc_id_exists(doc_id: str):
     return f'{doc_id}.crdt' in os.listdir(docs_dir)
 
-def Doc_template(client_id : str = None):
+def Doc_template():
 
-    Doc_template = Doc() if client_id is None else Doc(client_id=client_id)
+    Doc_template = Doc()
     Doc_template['md'] = Array()
     Doc_template['history'] = Map()
 
     return Doc_template
 
-def Doc_constructor(client_id : str = None, doc_id : str = None):
+def Doc_constructor(doc_id : str = None):
 
-    doc = Doc_template(client_id)
+    doc = Doc_template()
 
     if doc_id_exists(doc_id):
         copy_path = docs_dir.joinpath(f'{doc_id}.crdt')

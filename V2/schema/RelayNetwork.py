@@ -1,21 +1,32 @@
-from typing import Dict 
+from queue import Empty
+from typing import Dict, Set
 import uuid
+from pycrdt import TransactionEvent
 from V2.schema import InMemoryDoc
-from asyncio import afor
+import asyncio
+from ..operations.network_ops import publish, pull, _make_observer, run
 
 
 class RelayNetwork:
     def __init__(self, MemDoc: InMemoryDoc) -> None:
         self.file_id = MemDoc.file_id
-        self.nodes = Dict[MemDoc.sid, MemDoc]
+        self.nodes = Dict[MemDoc.sid, MemDoc] = {}
+        self._relay_queue: asyncio.Queue[tuple[MemDoc.id, bytes]] = asyncio.Queue()
+        self._applying: Set = {}
     
-    async def join_network(self, MemDoc: InMemoryDoc):
+    def join_network(self, MemDoc: InMemoryDoc):
         self.nodes[MemDoc.sid] = MemDoc 
+        pull(MemDoc.sid, self)
+        MemDoc.observe(_make_observer(MemDoc.sid, self))
     
-    async def relay_sync(self):
-        nodes = self.nodes.keys()
+    def leave_network(self, MemDoc_id: str):
+        doc = self.nodes[MemDoc_id]
+        doc.flush()
+        self.nodes.pop(MemDoc_id)
+    
+    def publish(self, sender:str, transaction: TransactionEvent):
+        publish(sender, self, TransactionEvent)
+    
+    async def relay(self):
+        await run(self)
 
-        async for node1 in nodes:
-            async for node2 in nodes:
-                if not node1 == node2:
-                    

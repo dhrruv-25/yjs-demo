@@ -14,6 +14,11 @@ Desging Choices:
     Relay Networks and InMemoryDocs:
         - All users on a particular doc form a relay network among themselves. 
         - Every socket_id gets an InMemoryDoc. A user may have multiple socket_ids.
+        - RelayNetworks maintain a set of documents that are to be applied to. They also maintain an async queue of (doc_id, bytes).
+        - If a document is already in the set of documents to be applied to, then its changes are simply added to the queue. 
+        - Transactions (bytes) are key'd by sid's and queued in RelayNetworks. Each instance of the app maintains their own relay network for the same document if needed.
+        - RelayNetworks also store the sid's in session of the member on other instances also, transactions issued by them are also added to the queue.
+            - Changes across instances are maintained by Redis pub/sub and socketio rooms. 
     
     InMemoryDocs:
         - InMemoryDocs are copied from iDrive upon initialisation, if the file_id already exists.
@@ -42,3 +47,11 @@ Desging Choices:
             - Redo's also must not work if the most recent transaction made by that session_id is not itself an undo. 
         - Undo's and Redo's must not persist after session has stopped.      
 
+
+
+
+Still to be done:
+- How to drain the buffer? 
+    - Do we drain through InMemoryDoc or RelayNetwork? 
+    - How do we compress transactions? Over keystrokes or time deltas?
+    - Currnently there is no persistence requirement on undos and redos.
