@@ -2,7 +2,8 @@ import asyncio
 
 import httpx
 import pytest
-from pycrdt import Map
+import socketio
+from pycrdt import Awareness
 
 import V2.app as app_module
 from V2.operations.file_ops import create_file
@@ -25,7 +26,7 @@ async def server(v2_docs, monkeypatch):
 
     monkeypatch.setattr(app_module.sio, "emit", emit)
     monkeypatch.setattr(app_module.sio, "enter_room", enter_room)
-    registry = Registry(app_module.emit_update)
+    registry = Registry(app_module.emit_to)
     monkeypatch.setattr(app_module, "registry", registry)
     monkeypatch.setattr(app_module, "RENDER_DELAY", 0)
     yield sent
@@ -44,41 +45,54 @@ async def connect(sid, file_id):
     reply = await app_module.sync(sid, b"\x00")
     doc = Doc_template()
     doc.apply_update(reply["update"])
-    return doc
+    return doc, reply
 
 
-async def test_socket_handlers_relay_updates_and_render(server):
+def sent_to(sent, event, target):
+    return [data for e, data, to in sent if e == event and to == target]
+
+
+async def test_socket_handlers_relay_updates_cursors_and_render(server):
     file_id = create_file()
-    a_doc = await connect("a", file_id)
-    b_doc = await connect("b", file_id)
+    a_doc, _ = await connect("a", file_id)
+    b_doc, _ = await connect("b", file_id)
 
     before = a_doc.get_state()
-    a_doc["md"][0].insert(0, "**bold**")
+    a_doc["md"].insert(0, "**bold**")
     await app_module.update("a", {"update": a_doc.get_update(before), "undo": False})
+
+    a_awareness = Awareness(a_doc)
+    a_awareness.set_local_state({"user": {"id": "a"}, "cursor": {"anchor": {"tname": "md"}, "head": {"tname": "md"}}})
+    await app_module.awareness("a", a_awareness.encode_awareness_update([a_doc.client_id]))
     await asyncio.sleep(0.05)
 
-    updates_to_b = [data for event, data, to in server if event == "update" and to == "b"]
-    assert updates_to_b
-    for update in updates_to_b:
+    for update in sent_to(server, "update", "b"):
         b_doc.apply_update(update)
-    assert str(b_doc["md"][0]) == "**bold**"
-    assert not [1 for event, _, to in server if event == "update" and to == "a"]
+    assert str(b_doc["md"]) == "**bold**"
+    assert sent_to(server, "update", "a") == []
 
-    renders = [data for event, data, room in server if event == "render" and room == file_id]
+    b_awareness = Awareness(b_doc)
+    for update in sent_to(server, "awareness", "b"):
+        b_awareness.apply_awareness_update(update, "server")
+    assert b_awareness.states[a_doc.client_id]["user"] == {"id": "a"}
+
+    renders = sent_to(server, "render", file_id)
     assert renders and "<strong>bold</strong>" in renders[-1]["html"]
 
-    await app_module.disconnect("a")
-    await app_module.disconnect("b")
+    _, late = await connect("c", file_id)
+    assert late["awareness"] and "<strong>bold</strong>" in late["html"]
+
+    for sid in ("a", "b", "c"):
+        await app_module.disconnect(sid)
     assert app_module.registry.networks == {}
 
 
 async def test_connect_refuses_unknown_file(server):
-    import socketio
     with pytest.raises(socketio.exceptions.ConnectionRefusedError):
         await app_module.connect("x", {}, {"file_id": "missing"})
 
 
-async def test_rest_crud_and_render(http):
+async def test_rest_crud_render_and_history(server, http):
     created = await http.post("/api/files")
     assert created.status_code == 201
     file_id = created.json()["id"]
@@ -86,21 +100,22 @@ async def test_rest_crud_and_render(http):
     listing = (await http.get("/api/files")).json()
     assert [f["id"] for f in listing] == [file_id]
 
-    file = (await http.get(f"/api/files/{file_id}")).json()
-    assert file["lines"] == [""]
-    assert (await http.get(f"/api/files/{file_id}/render")).json()["html"] == ""
-    assert (await http.put(f"/api/files/{file_id}")).json()["saved"] is True
+    doc, _ = await connect("a", file_id)
+    before = doc.get_state()
+    doc["md"].insert(0, "# hi")
+    await app_module.update("a", {"update": doc.get_update(before)})
+
+    assert (await http.get(f"/api/files/{file_id}")).json()["lines"] == ["# hi"]
+    assert "<h1>hi</h1>" in (await http.get(f"/api/files/{file_id}/render")).json()["html"]
+    history = (await http.get(f"/api/files/{file_id}/history")).json()
+    assert [entry["transactions"] for entry in history] == [1]
+    assert (await http.put(f"/api/files/{file_id}")).json() == {"id": file_id, "saved": True, "live": True}
+    assert (await http.delete(f"/api/files/{file_id}")).status_code == 409
+
+    await app_module.disconnect("a")
     assert (await http.get(f"/files/{file_id}")).status_code == 200
     assert (await http.get("/files/nope")).status_code == 404
     assert (await http.get("/api/files/..%2F..%2Fetc")).status_code == 404
-
     assert (await http.delete(f"/api/files/{file_id}")).status_code == 200
     assert (await http.get("/api/files")).json() == []
-
-
-async def test_delete_refused_while_open(server, http):
-    file_id = create_file()
-    await connect("a", file_id)
-    assert (await http.delete(f"/api/files/{file_id}")).status_code == 409
-    await app_module.disconnect("a")
-    assert (await http.delete(f"/api/files/{file_id}")).status_code == 200
+    assert list(app_module.registry.networks) == []

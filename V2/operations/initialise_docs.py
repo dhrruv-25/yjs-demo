@@ -1,4 +1,4 @@
-from pycrdt import Doc, Array, Map, Text
+from pycrdt import Doc, Array, Text
 from pathlib import Path
 import os
 import re
@@ -19,6 +19,10 @@ def doc_path(doc_id: str) -> Path:
     return docs_dir / f"{doc_id}.crdt"
 
 
+def history_path(doc_id: str) -> Path:
+    return doc_path(doc_id).with_suffix(".history.jsonl")
+
+
 def doc_id_exists(doc_id: str | None) -> bool:
     return valid_doc_id(doc_id) and doc_path(doc_id).exists()
 
@@ -26,24 +30,20 @@ def doc_id_exists(doc_id: str | None) -> bool:
 def Doc_template():
 
     Doc_template = Doc()
-    Doc_template['md'] = Array()
-    Doc_template['history'] = Map()
-    Doc_template['cursor'] = Map()
+    Doc_template['md'] = Text()
 
     return Doc_template
 
 
 def _migrate_v1(doc: Doc) -> bool:
     """V1 stored the markdown as an Array of characters under 'markdown_arr'."""
-    md = doc.get('md', type=Array)
+    md = doc.get('md', type=Text)
     if len(md):
         return False
     chars = doc.get('markdown_arr', type=Array).to_py()
     if not chars:
         return False
-    with doc.transaction():
-        for line in "".join(chars).split("\n"):
-            md.append(Text(line))
+    md.insert(0, "".join(chars))
     return True
 
 

@@ -9,9 +9,9 @@ Desging Choices:
 
     CRDT Object Datastructure:
         - Every markdown is really just a .crdt file/ Doc() object. 
-        - Every doc() contains an 'md' Array. Each element in the array is a Text object that symbolizes a line in the markdown. An empty line is an empty Text object.
-        - Every Doc() also contains a Map (namespace: 'history') that stores its transaction history, key'd by str(user_id; time). 
-        - Every Doc() also contains a Map (namesapce: 'cursor') that maintains where other user's indexes (StickyIndex) are in the document. A user may only operate on their own sid's index. 
+        - Every Doc() contains a single 'md' Text object holding the whole markdown. Lines are derived by splitting on '\n'.
+        - Transaction history is stored outside the doc, in a sidecar documents/<file_id>.history.jsonl, one entry per line key'd by str(user_id; time).
+        - Cursors are not stored in the doc. They are ephemeral Awareness state (y-protocols), where each client publishes {user, cursor: {anchor, head}} with anchor/head as Yjs relative positions (pyCRDT StickyIndex JSON). A session may only publish awareness for its own client ids.
 
     TransactionDTOs:
         - Contain Transaction events, user and session details as well as undo flags. 
@@ -23,22 +23,23 @@ Desging Choices:
     
     InMemoryDocs:
         - InMemoryDocs are copied from iDrive upon initialisation, if the file_id already exists. This implementation simply takes from disk.
-        - Every socket_id gets an InMemoryDoc. A user may have multiple socket_ids.
-        - Every InMemoryDoc maintains a buffer of TransactionDTOs, that is drained into doc transaction history.
+        - There is one InMemoryDoc per file_id per instance: the single server replica every session reads and writes through. It also owns the file's Awareness.
+        - Cursor positions are resolved server-side with pyCRDT StickyIndexes (GET /api/files/{id}/cursors).
+
+    Sessions:
+        - Every socket_id gets a Session. A user may have multiple socket_ids.
+        - Every Session maintains a buffer of TransactionDTOs, that is drained into the history file.
             - These buffers may be drained either after a select number of transacations, or by time interval. 
                 - When the client is still connected to the socket, every keystroke is a transaction. However, it may happen that a user goes offline mid session and then comes back and enact a large transaction. 
-        - Use pyCRDT StickyIndexes for indices. Indexes are nested inside crdt objects, a sid must only operate on its own index. 
-        - An InMemoryDoc's buffer only contains TransactionDTOs of the transactions executed by only its own user_id, and session_id.  
-        - Emits are sent from insde InMemoryDocs.
+        - A Session's buffer only contains TransactionDTOs of the transactions executed by its own user_id and session_id, and only those that actually changed the doc.
+        - Emits are sent from inside Sessions. Doc updates are batched per event-loop tick and merged.
 
-    Relay Networks and InMemoryDocs:
-        - All users editing an InMemoryDoc that share a file_id form a RelayNetwork to transact among themselves. 
-        - RelayNetworks maintains and executes an async queue of (doc_id, bytes) everytime a document makes a change.
-        - If a document is already in queue, it may not append to the queue until its caught up with others' transactions. If it's not in queue, it may add to it. 
-        - Transactions (bytes) are key'd by sid's and queued in RelayNetworks. Each instance of the app maintains their own relay network for the same document if needed.
-        - RelayNetworks also stores sid's in session of members on other instances also, transactions issued by them are also added to the queue.
-            - Changes across instances are maintained by Redis pub/sub and socketio rooms. 
-        - An sid cannot publish to itself, and hence cannot add itself to the queue.
+    Relay Networks:
+        - All sessions editing a file_id form a RelayNetwork around that file's InMemoryDoc.
+        - A session's update is applied to the InMemoryDoc and fanned out to every other session in the network. An sid never receives its own updates.
+        - Awareness updates are fanned out the same way. When a session leaves, its awareness states are removed and the removal is broadcast.
+        - Each instance of the app maintains its own relay network for the same document if needed.
+            - Changes across instances are maintained by Redis pub/sub and socketio rooms (not implemented yet).
     
     
     Undo's and Redo's:
@@ -59,18 +60,20 @@ Desging Choices:
         - The frontend-backend Relay is bridged by socketIO for client-server operations, and Redis pub/sub for cross instance fanout in the backend. 
 
     Socket Events:
-        - Since the backend and frontend maintain their own docs, the only events and emits are transactions. 
+        - Since the backend and frontend maintain their own docs, the only events and emits are transactions and awareness. 
+        - `sync`: handshake. Client state vector in; missing update, server state vector and all awareness states out.
+        - `update`: binary doc update, with undo/redo flags when sent by the UndoManager.
+        - `awareness`: binary y-protocols awareness update.
+        - `render`: server -> room, rendered HTML.
 
     Implemented (single instance; run with `uvicorn V2.app:app --port 8001`):
-        - Socket events: `sync` (handshake: client state vector in, missing update + server state vector out), `update` (binary, with undo/redo flags), `render` (server -> room).
-        - Per socketID StickyIndexes: cursor[sid] = {user_id, color, line, col}, where line/col are encoded sticky indexes (Yjs relative positions decode with pyCRDT StickyIndex). Foreign cursor writes are reverted; cursors are removed on disconnect and cleared when a file is first opened.
         - Undo/Redo: client-side Y.UndoManager tracking only local-origin transactions, so it never touches other sessions and does not outlive the page.
-        - Array operations: the textarea diff of each input event becomes one transaction on the Array<Text> line model (split on Enter, merge on Backspace at column 0).
-        - Buffer draining: InMemoryDoc owns its buffer; RelayNetwork drains every V2_DRAIN_SECONDS (0 disables, letting the buffer grow), on save and on leave. Consecutive DTOs with the same undo/redo flags are merged with merge_updates into one history entry.
+        - Text operations: the textarea diff of each input event becomes one insert/delete transaction on the 'md' Text.
+        - Buffer draining: RelayNetwork drains every V2_DRAIN_SECONDS (0 disables, letting the buffer grow), on save, on GET history and on leave. Consecutive DTOs with the same undo/redo flags are merged with merge_updates into one history entry.
         - md renderer from v1 (server side); markdown-it in the browser while offline.
-        - V1 documents (markdown_arr) are migrated into 'md' lines on first load.
+        - V1 documents (markdown_arr) are migrated into the 'md' Text on first load.
 
 Still to be done:
-- History lives inside the synced doc, so every client downloads it. Consider moving it to a separate doc/file.
 - Offline edits only survive while the page stays open (no IndexedDB persistence yet).
 - Redis pub/sub cross-instance fan-out.
+- Consider CodeMirror + y-codemirror.next in place of the textarea now that the doc is a single Text.

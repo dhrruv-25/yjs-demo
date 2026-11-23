@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING
+import json
 import uuid
+from pathlib import Path
 
 from pycrdt import Doc, Array, Text
 from V2.operations import initialise_docs
-from V2.operations.initialise_docs import Doc_template, Doc_constructor, doc_path
-
-if TYPE_CHECKING:
-    from V2.schema.InMemoryDoc import InMemoryDoc
+from V2.operations.initialise_docs import Doc_template, Doc_constructor, doc_path, history_path
 
 
 def save_doc_to_path(doc: Doc, path: str | Path):
@@ -32,26 +29,24 @@ def create_doc_from_path(path: str | Path) -> Doc:
     return document
 
 
-def get_update(pulling_doc: InMemoryDoc, pushing_doc: InMemoryDoc) -> bytes:
-    """The update pulling_doc needs in order to catch up with pushing_doc."""
-    return pushing_doc.Doc.get_update(pulling_doc.Doc.get_state())
+def doc_markdown(doc: Doc) -> str:
+    return str(doc.get('md', type=Text))
 
 
 def doc_lines(doc: Doc) -> list[str]:
-    return [str(line) for line in doc.get('md', type=Array)]
-
-
-def doc_markdown(doc: Doc) -> str:
-    return "\n".join(doc_lines(doc))
+    return doc_markdown(doc).split("\n")
 
 
 def create_file() -> str:
     initialise_docs.docs_dir.mkdir(exist_ok=True)
     file_id = uuid.uuid4().hex
-    doc = Doc_template()
-    doc.get('md', type=Array).append(Text(""))
-    doc_path(file_id).write_bytes(doc.get_update())
+    doc_path(file_id).write_bytes(Doc_template().get_update())
     return file_id
+
+
+def delete_file(file_id: str):
+    delete_doc_from_path(doc_path(file_id))
+    delete_doc_from_path(history_path(file_id))
 
 
 def list_files() -> list[dict]:
@@ -63,3 +58,18 @@ def list_files() -> list[dict]:
             title = next((line.lstrip("# ").strip() for line in doc_lines(doc) if line.strip()), "")
         files.append({"id": path.stem, "title": title or "Untitled", "modified": path.stat().st_mtime})
     return files
+
+
+def append_history(file_id: str, entries: list[dict]):
+    if not entries:
+        return
+    with history_path(file_id).open("a", encoding="utf-8") as history:
+        for entry in entries:
+            history.write(json.dumps(entry) + "\n")
+
+
+def read_history(file_id: str) -> list[dict]:
+    path = history_path(file_id)
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]

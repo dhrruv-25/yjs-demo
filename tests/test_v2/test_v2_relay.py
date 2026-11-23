@@ -1,195 +1,239 @@
 import base64
 
 import pytest
-from pycrdt import Array, Doc, Map, Text
+from pycrdt import Array, Doc
 
-from V2.operations.file_ops import create_file, doc_lines
-from V2.operations.initialise_docs import Doc_constructor, doc_path
+from V2.operations.file_ops import create_file, doc_markdown, read_history
+from V2.operations.initialise_docs import Doc_constructor, Doc_template, doc_path
 
 pytestmark = pytest.mark.anyio
 
 
-def _varuint(n: int) -> bytes:
-    out = bytearray()
-    while True:
-        byte, n = n & 0x7F, n >> 7
-        out.append(byte | 0x80 if n else byte)
-        if not n:
-            return bytes(out)
+def item(doc: Doc, index: int) -> dict:
+    """Y.relativePositionToJSON for a position inside the text."""
+    return doc["md"].sticky_index(index).to_json()
 
 
-def yjs_end_of_line(doc: Doc, line: int) -> bytes:
-    """What Y.encodeRelativePosition produces for a caret at the end of a line (pycrdt panics creating one)."""
-    item = doc["md"].sticky_index(line).to_json()["item"]
-    return b"\x02" + _varuint(item["client"]) + _varuint(item["clock"]) + b"\x00"
+END = {"tname": "md", "assoc": 0}  # Y.relativePositionToJSON for the end of the root text
 
 
-async def test_two_clients_converge(net):
+async def test_two_clients_converge_on_one_server_doc(hub):
     file_id = create_file()
-    a, b = net.client("alice"), net.client("bob")
+    a, b = hub.client("alice"), hub.client("bob")
     a.connect(file_id)
     b.connect(file_id)
 
-    a.insert(0, 0, "hello")
-    b.append_line("world")
-    await net.settle()
+    a.insert(0, "hello")
+    await hub.settle()
+    b.insert(5, "\nworld")
+    await hub.settle()
 
-    assert a.lines == b.lines == ["hello", "world"]
-    for node in net.registry.network(file_id).nodes.values():
-        assert node.read() == ["hello", "world"]
+    network = hub.registry.network(file_id)
+    assert a.text == b.text == network.doc.read() == "hello\nworld"
+    assert set(network.sessions) == {a.sid, b.sid}
 
 
-async def test_concurrent_edits_on_one_line_converge(net):
+async def test_updates_are_not_echoed_to_their_sender(hub):
     file_id = create_file()
-    a, b = net.client("alice"), net.client("bob")
+    a, b = hub.client("alice"), hub.client("bob")
     a.connect(file_id)
     b.connect(file_id)
-    a.insert(0, 0, "abc")
-    await net.settle()
+    a.received.clear()
 
-    a.insert(0, 0, "X")
-    b.insert(0, 3, "Y")
-    await net.settle()
+    a.insert(0, "x")
+    await hub.settle()
 
-    assert a.lines == b.lines == ["XabcY"]
+    assert [event for event, _ in a.received if event == "update"] == []
+    assert b.text == "x"
 
 
-async def test_late_joiner_receives_state_in_handshake(net):
+async def test_concurrent_edits_converge(hub):
     file_id = create_file()
-    a = net.client("alice")
-    a.connect(file_id)
-    a.insert(0, 0, "# Title")
-    a.append_line("body")
-    await net.settle()
-
-    b = net.client("bob")
-    b.connect(file_id)
-    assert b.lines == ["# Title", "body"]
-
-
-async def test_offline_edits_merge_on_reconnect(net):
-    file_id = create_file()
-    a, b = net.client("alice"), net.client("bob")
+    a, b = hub.client("alice"), hub.client("bob")
     a.connect(file_id)
     b.connect(file_id)
-    a.insert(0, 0, "shared")
-    await net.settle()
+    a.insert(0, "abc")
+    await hub.settle()
+
+    a.edit(lambda md: md.insert(0, "X"))
+    b.edit(lambda md: md.insert(3, "Y"))
+    await hub.settle()
+
+    assert a.text == b.text == "XabcY"
+
+
+async def test_late_joiner_receives_text_and_cursors_in_handshake(hub):
+    file_id = create_file()
+    a = hub.client("alice")
+    a.connect(file_id)
+    a.insert(0, "# Title\nbody")
+    a.set_cursor(item(a.doc, 3))
+    await hub.settle()
+
+    b = hub.client("bob")
+    b.connect(file_id)
+    assert b.text == "# Title\nbody"
+    assert [state["user"]["id"] for state in b.peers.values()] == ["alice"]
+
+
+async def test_offline_edits_merge_on_reconnect(hub):
+    file_id = create_file()
+    a, b = hub.client("alice"), hub.client("bob")
+    a.connect(file_id)
+    b.connect(file_id)
+    a.insert(0, "shared")
+    await hub.settle()
 
     await a.disconnect()
-    a.append_line("written offline")
-    b.append_line("written online")
-    await net.settle()
-    assert "written offline" not in b.lines
+    a.insert(6, " +offline")
+    b.insert(0, "online+ ")
+    await hub.settle()
+    assert "offline" not in b.text
 
     a.connect(file_id)
-    await net.settle()
-
-    assert a.lines == b.lines
-    assert set(a.lines) == {"shared", "written offline", "written online"}
+    await hub.settle()
+    assert a.text == b.text == "online+ shared +offline"
 
 
-async def test_last_leave_saves_and_closes_network(net):
+async def test_last_leave_saves_only_the_text(hub):
     file_id = create_file()
-    a = net.client("alice")
+    a = hub.client("alice")
     a.connect(file_id)
-    a.insert(0, 0, "persist me")
-    await net.settle()
+    a.insert(0, "persist me")
+    a.set_cursor(END)
     await a.disconnect()
 
-    assert net.registry.network(file_id) is None
-    assert doc_lines(Doc_constructor(file_id)) == ["persist me"]
+    assert hub.registry.network(file_id) is None
+    saved = Doc()
+    saved.apply_update(doc_path(file_id).read_bytes())
+    assert doc_markdown(Doc_constructor(file_id)) == "persist me"
+    assert set(saved.keys()) == {"md"}
 
 
-async def test_client_cannot_write_another_sids_cursor(net):
+async def test_cursors_are_relayed_and_resolved_with_sticky_indexes(hub):
     file_id = create_file()
-    a, b = net.client("alice"), net.client("bob")
+    a, b = hub.client("alice"), hub.client("bob")
     a.connect(file_id)
     b.connect(file_id)
-    a.insert(0, 0, "hello")
-    await net.settle()
+    a.insert(0, "hello\nworld")
+    await hub.settle()
 
-    def own_cursor(doc: Doc):
-        line = doc["md"].sticky_index(0)
-        col = doc["md"][0].sticky_index(2)
-        doc["cursor"][a.sid] = {"user_id": "alice", "line": line.encode(), "col": col.encode()}
+    assert a.set_cursor(item(a.doc, 2), END)
+    b.insert(0, ">> ")
+    await hub.settle()
 
-    a.edit(own_cursor)
-    a.edit(lambda doc: doc["cursor"].__setitem__(b.sid, {"user_id": "mallory"}))
-    await net.settle()
-
-    for client in (a, b):
-        cursors = client.doc.get("cursor", type=Map).to_py()
-        assert set(cursors) == {a.sid}
-    positions = net.registry.network(file_id).any_node().cursor_positions()
-    assert positions[a.sid] == {"user_id": "alice", "line": 0, "col": 2}
+    assert b.peers[a.doc.client_id]["cursor"]["head"] == END
+    position = hub.registry.network(file_id).doc.cursor_positions()[a.doc.client_id]
+    assert position == {"user": {"id": "alice", "name": "alice", "color": "#7aa2f7"},
+                        "anchor": 5, "head": 14, "line": 1, "col": 5}
 
 
-async def test_cursor_follows_remote_edits_and_is_removed_on_disconnect(net):
+async def test_cursor_removed_from_peers_on_disconnect(hub):
     file_id = create_file()
-    a, b = net.client("alice"), net.client("bob")
+    a, b = hub.client("alice"), hub.client("bob")
     a.connect(file_id)
     b.connect(file_id)
-    a.insert(0, 0, "hello")
-    await net.settle()
+    a.set_cursor(END)
+    await hub.settle()
+    assert a.doc.client_id in b.peers
 
-    a.edit(lambda doc: doc["cursor"].__setitem__(a.sid, {
-        "user_id": "alice",
-        "line": doc["md"].sticky_index(0).encode(),
-        "col": yjs_end_of_line(doc, 0),
-    }))
-    b.insert(0, 0, ">> ")
-    await net.settle()
-    node = net.registry.docs[b.sid]
-    assert node.cursor_positions()[a.sid]["col"] == 8
-
-    a_sid = a.sid
     await a.disconnect()
-    await net.settle()
-    assert a_sid not in b.doc.get("cursor", type=Map).to_py()
+    await hub.settle()
+    assert a.doc.client_id not in b.peers
+    assert a.doc.client_id not in hub.registry.network(file_id).doc.awareness.states
 
 
-async def test_buffer_drains_into_history_grouped_by_undo_flag(net):
+async def test_cursor_reappears_after_reconnect_without_moving(hub):
     file_id = create_file()
-    a, b = net.client("alice"), net.client("bob")
+    a, b = hub.client("alice"), hub.client("bob")
     a.connect(file_id)
     b.connect(file_id)
-    a.insert(0, 0, "a")
-    a.insert(0, 1, "b")
-    a.edit(lambda doc: doc["md"][0].__delitem__(slice(1, 2)), undo=True)
-    a.insert(0, 1, "c")
+    a.set_cursor(END)
+    await hub.settle()
 
-    assert len(a.node._buffer) == 4
-    assert a.node.drain() == 3
-    assert a.node._buffer == []
-    await net.settle()
+    await a.disconnect()
+    await hub.settle()
+    assert a.doc.client_id not in b.peers
 
-    history = b.doc.get("history", type=Map).to_py()
-    entries = sorted(history.values(), key=lambda entry: entry["start"])
-    assert [(e["undo"], e["transactions"]) for e in entries] == [(False, 2), (True, 1), (False, 1)]
+    a.connect(file_id)
+    await hub.settle()
+    assert b.peers[a.doc.client_id]["cursor"]["head"] == END
+
+
+async def test_session_cannot_publish_another_users_cursor(hub):
+    file_id = create_file()
+    a, b = hub.client("alice"), hub.client("bob")
+    a.connect(file_id)
+    b.connect(file_id)
+
+    b.awareness.apply_awareness_update(
+        a.awareness.encode_awareness_update([a.doc.client_id]), "forged")
+    b.awareness._meta[a.doc.client_id]["clock"] += 5
+    assert b.publish_awareness([a.doc.client_id]) is False
+
+
+async def test_same_user_can_reclaim_its_cursor_after_reconnect(hub):
+    file_id = create_file()
+    first = hub.client("alice")
+    first.connect(file_id)
+    second = hub.client("alice")
+    second.doc = first.doc
+    second.awareness = first.awareness
+    second.connect(file_id)
+    assert second.set_cursor(END) is True
+
+
+async def test_history_lives_outside_the_doc(hub):
+    file_id = create_file()
+    a, b = hub.client("alice"), hub.client("bob")
+    a.connect(file_id)
+    b.connect(file_id)
+    a.insert(0, "a")
+    a.insert(1, "b")
+    a.edit(lambda md: md.__delitem__(slice(1, 2)), undo=True)
+    a.edit(lambda md: md.insert(1, "b"), redo=True)
+    a.insert(2, "c")
+
+    assert hub.registry.network(file_id).drain() == 4
+    entries = read_history(file_id)
+    assert [(e["undo"], e["redo"], e["transactions"]) for e in entries] == [
+        (False, False, 2), (True, False, 1), (False, True, 1), (False, False, 1)]
     assert all(e["sid"] == a.sid and e["user_id"] == "alice" for e in entries)
+    assert "history" not in b.doc.keys()
 
-    replay = Doc()
-    replay["md"] = Array()
-    replay.apply_update(Doc_constructor(file_id).get_update())
+    replay = Doc_template()
     for entry in entries:
         replay.apply_update(base64.b64decode(entry["update"]))
-    assert [str(line) for line in replay["md"]] == ["ac"]
+    assert str(replay["md"]) == "abc"
 
 
-async def test_history_drain_does_not_reenter_the_buffer(net):
+async def test_noop_updates_are_not_logged(hub):
     file_id = create_file()
-    a = net.client("alice")
+    a = hub.client("alice")
     a.connect(file_id)
-    a.insert(0, 0, "x")
-    a.node.drain()
-    assert a.node._buffer == []
+    a.insert(0, "abc")
+    a.edit(lambda md: md.__delitem__(slice(0, 1)))
+    session = hub.registry.network(file_id).sessions[a.sid]
+    assert session.buffered == 2
+
+    a.network.receive_update(a.sid, a.doc.get_update(a.network.doc.get_state()))
+    assert session.buffered == 2
 
 
-def test_v1_documents_are_migrated_to_lines(v2_docs):
+async def test_leave_flushes_the_buffer_to_history(hub):
+    file_id = create_file()
+    a = hub.client("alice")
+    a.connect(file_id)
+    a.insert(0, "x")
+    await a.disconnect()
+    assert [e["transactions"] for e in read_history(file_id)] == [1]
+
+
+def test_v1_documents_are_migrated_to_text(v2_docs):
     v1 = Doc()
     v1["markdown_arr"] = Array(list("# Heading\n\nbody"))
     v1["md_title"] = Array(list("Title"))
     doc_path("legacy").write_bytes(v1.get_update())
 
-    assert doc_lines(Doc_constructor("legacy")) == ["# Heading", "", "body"]
-    assert doc_lines(Doc_constructor("legacy")) == ["# Heading", "", "body"]
+    assert doc_markdown(Doc_constructor("legacy")) == "# Heading\n\nbody"
+    assert doc_markdown(Doc_constructor("legacy")) == "# Heading\n\nbody"

@@ -1,9 +1,14 @@
 import * as Y from "https://esm.sh/yjs@13.6.33";
+import {
+  Awareness,
+  applyAwarenessUpdate,
+  encodeAwarenessUpdate,
+  removeAwarenessStates,
+} from "https://esm.sh/y-protocols@1.0.7/awareness?deps=yjs@13.6.33";
 import markdownit from "https://esm.sh/markdown-it@14.1.0";
 
 const LOCAL = "local";
 const SERVER = "server";
-const CURSOR = "cursor";
 const COLORS = ["#7aa2f7", "#9ece6a", "#f7768e", "#bb9af7", "#7dcfff", "#e0af68"];
 
 const $ = (id) => document.getElementById(id);
@@ -25,74 +30,26 @@ const color = colorFor(userId);
 
 // The browser keeps its own replica, so editing continues while offline and merges on reconnect.
 const ydoc = new Y.Doc();
-const lines = ydoc.getArray("md");
-const cursors = ydoc.getMap("cursor");
-const undoManager = new Y.UndoManager(lines, { trackedOrigins: new Set([LOCAL]), captureTimeout: 400 });
+const ytext = ydoc.getText("md");
+const awareness = new Awareness(ydoc);
+awareness.setLocalStateField("user", { id: userId, name: shortId(userId), color });
+const undoManager = new Y.UndoManager(ytext, { trackedOrigins: new Set([LOCAL]), captureTimeout: 400 });
 const md = markdownit({ html: false, breaks: true, linkify: true });
 const socket = io({ auth: { file_id: fileId, user_id: userId }, transports: ["websocket"] });
 
 let online = false;
 let shadow = "";          // textarea contents as last reconciled with the doc
-let selection = null;     // caret as sticky positions, so it survives remote edits
+let selection = null;     // { anchor, head } as relative positions, so it survives remote edits
 let selectionBeforeInput = null;
 let historyOp = null;     // "undo" | "redo" while the UndoManager is transacting
 let lastCursor = "";
 
-// ---------- line model: Y.Array<Y.Text>, one Y.Text per line ----------
-
-const docText = () => lines.toArray().map(String).join("\n");
-
-function locate(offset) {
-  const arr = lines.toArray();
-  for (let i = 0; i < arr.length; i++) {
-    if (offset <= arr[i].length) return [i, offset];
-    offset -= arr[i].length + 1;
-  }
-  const last = arr.length - 1;
-  return [last, last >= 0 ? arr[last].length : 0];
-}
-
-function offsetOf(line, col) {
-  const arr = lines.toArray();
-  let offset = 0;
-  for (let i = 0; i < line; i++) offset += arr[i].length + 1;
-  return offset + col;
-}
-
-function deleteRange(from, to) {
-  const [l1, c1] = locate(from);
-  const [l2, c2] = locate(to);
-  const first = lines.get(l1);
-  if (l1 === l2) {
-    first.delete(c1, c2 - c1);
-    return;
-  }
-  const tail = lines.get(l2).toString().slice(c2);
-  first.delete(c1, first.length - c1);
-  if (tail) first.insert(c1, tail);
-  lines.delete(l1 + 1, l2 - l1);
-}
-
-function insertAt(offset, text) {
-  const [l, c] = locate(offset);
-  const line = lines.get(l);
-  const parts = text.split("\n");
-  if (parts.length === 1) {
-    line.insert(c, text);
-    return;
-  }
-  const tail = line.toString().slice(c);
-  if (tail) line.delete(c, tail.length);
-  if (parts[0]) line.insert(c, parts[0]);
-  const fresh = parts.slice(1).map((part, i) => new Y.Text(i === parts.length - 2 ? part + tail : part));
-  lines.insert(l + 1, fresh);
-}
+// ---------- editing: every input event becomes one transaction on the Y.Text ----------
 
 function applyChange({ start, deleteCount, insert }) {
   ydoc.transact(() => {
-    if (lines.length === 0) lines.push([new Y.Text()]);
-    if (deleteCount) deleteRange(start, start + deleteCount);
-    if (insert) insertAt(start, insert);
+    if (deleteCount) ytext.delete(start, deleteCount);
+    if (insert) ytext.insert(start, insert);
   }, LOCAL);
 }
 
@@ -110,50 +67,39 @@ function diff(a, b, caret) {
   return { start, deleteCount: endA - start, insert: b.slice(start, endB) };
 }
 
-// ---------- sticky positions ----------
+// ---------- relative positions ----------
 
-function stickyAt(offset) {
-  const [line, col] = locate(offset);
-  if (line < 0) return null;
-  return {
-    line: Y.createRelativePositionFromTypeIndex(lines, line),
-    col: Y.createRelativePositionFromTypeIndex(lines.get(line), col),
-  };
-}
+const stickyAt = (offset) => Y.createRelativePositionFromTypeIndex(ytext, offset);
 
-function resolve(sticky) {
-  if (!sticky) return 0;
-  const col = Y.createAbsolutePositionFromRelativePosition(sticky.col, ydoc);
-  if (col) {
-    const line = lines.toArray().indexOf(col.type);
-    if (line >= 0) return offsetOf(line, col.index);
-  }
-  const line = Y.createAbsolutePositionFromRelativePosition(sticky.line, ydoc);
-  if (line && lines.length) return offsetOf(Math.min(line.index, lines.length - 1), 0);
-  return 0;
+function resolve(relative) {
+  if (!relative) return 0;
+  const absolute = Y.createAbsolutePositionFromRelativePosition(relative, ydoc);
+  return absolute && absolute.type === ytext ? absolute.index : 0;
 }
 
 function captureSelection() {
-  selection = { start: stickyAt(editor.selectionStart), end: stickyAt(editor.selectionEnd) };
+  selection = { anchor: stickyAt(editor.selectionStart), head: stickyAt(editor.selectionEnd) };
 }
 
-function publishCursor(force = false) {
-  if (!online || !selection?.end) return;
-  const line = Y.encodeRelativePosition(selection.end.line);
-  const col = Y.encodeRelativePosition(selection.end.col);
-  const key = `${socket.id}:${line}:${col}`;
-  if (!force && key === lastCursor) return;
+function publishCursor() {
+  if (!selection) return;
+  const cursor = {
+    anchor: Y.relativePositionToJSON(selection.anchor),
+    head: Y.relativePositionToJSON(selection.head),
+  };
+  const key = JSON.stringify(cursor);
+  if (key === lastCursor) return;
   lastCursor = key;
-  ydoc.transact(() => cursors.set(socket.id, { user_id: userId, color, line, col }), CURSOR);
+  awareness.setLocalStateField("cursor", cursor);
 }
 
 // ---------- painting ----------
 
 function refresh() {
-  const text = docText();
+  const text = ytext.toString();
   if (text !== editor.value) {
-    const start = resolve(selection?.start);
-    const end = resolve(selection?.end);
+    const start = resolve(selection?.anchor);
+    const end = resolve(selection?.head);
     const scroll = editor.scrollTop;
     editor.value = text;
     if (document.activeElement === editor) editor.setSelectionRange(start, end);
@@ -164,28 +110,29 @@ function refresh() {
   if (!online) renderLocalPreview();
 }
 
+function remoteStates() {
+  return [...awareness.getStates()].filter(([clientId, state]) => clientId !== ydoc.clientID && state?.user);
+}
+
 function paintOverlay() {
   const text = editor.value;
   const marks = [];
-  cursors.forEach((cursor, sid) => {
-    if (sid === socket.id || !cursor?.col || !cursor?.line) return;
+  for (const [, state] of remoteStates()) {
+    if (!state.cursor?.head) continue;
     try {
-      const offset = resolve({
-        line: Y.decodeRelativePosition(new Uint8Array(cursor.line)),
-        col: Y.decodeRelativePosition(new Uint8Array(cursor.col)),
-      });
-      marks.push([Math.min(offset, text.length), cursor]);
+      const offset = resolve(Y.createRelativePositionFromJSON(state.cursor.head));
+      marks.push([Math.min(offset, text.length), state.user]);
     } catch {
       /* malformed cursor from a peer */
     }
-  });
+  }
   marks.sort((a, b) => a[0] - b[0]);
   let html = "";
   let at = 0;
-  for (const [offset, cursor] of marks) {
-    const c = safeColor(cursor.color);
+  for (const [offset, user] of marks) {
+    const c = safeColor(user.color);
     html += escapeHtml(text.slice(at, offset));
-    html += `<span class="caret" style="border-color:${c};--c:${c}" data-label="${escapeHtml(shortId(cursor.user_id))}"></span>`;
+    html += `<span class="caret" style="border-color:${c};--c:${c}" data-label="${escapeHtml(user.name ?? shortId(user.id))}"></span>`;
     at = offset;
   }
   overlay.innerHTML = html + escapeHtml(text.slice(at)) + "\n";
@@ -194,13 +141,11 @@ function paintOverlay() {
 
 function paintPeers() {
   const seen = new Map();
-  cursors.forEach((cursor, sid) => {
-    if (sid !== socket.id && cursor?.user_id) seen.set(cursor.user_id, safeColor(cursor.color));
-  });
-  peersEl.replaceChildren(...[...seen].map(([id, c]) => {
+  for (const [, state] of remoteStates()) seen.set(state.user.id, state.user);
+  peersEl.replaceChildren(...[...seen.values()].map((user) => {
     const dot = document.createElement("span");
-    dot.style.background = c;
-    dot.title = shortId(id);
+    dot.style.background = safeColor(user.color);
+    dot.title = user.name ?? shortId(user.id);
     return dot;
   }));
 }
@@ -213,7 +158,7 @@ function showPreview(html, mode) {
 let previewFrame = 0;
 function renderLocalPreview() {
   cancelAnimationFrame(previewFrame);
-  previewFrame = requestAnimationFrame(() => showPreview(md.render(docText()), "local"));
+  previewFrame = requestAnimationFrame(() => showPreview(md.render(ytext.toString()), "local"));
 }
 
 function setStatus(text) {
@@ -248,24 +193,18 @@ undoManager.on("stack-item-popped", (event) => {
   const restored = event.stackItem.meta.get("selection");
   if (restored) {
     selection = restored;
-    const start = resolve(restored.start);
-    const end = resolve(restored.end);
-    editor.setSelectionRange(start, end);
+    editor.setSelectionRange(resolve(restored.anchor), resolve(restored.head));
     publishCursor();
   }
   updateHistoryButtons();
 });
 undoManager.on("stack-cleared", updateHistoryButtons);
 
-// ---------- doc observers ----------
+// ---------- doc and awareness observers ----------
 
-lines.observeDeep((_events, transaction) => {
+ytext.observe((_event, transaction) => {
   if (transaction.origin === LOCAL) paintOverlay();
   else refresh();
-});
-cursors.observe(() => {
-  paintOverlay();
-  paintPeers();
 });
 
 ydoc.on("update", (update, origin) => {
@@ -273,7 +212,25 @@ ydoc.on("update", (update, origin) => {
   socket.emit("update", { update, undo: historyOp === "undo", redo: historyOp === "redo" });
 });
 
-// ---------- textarea plumbing: every input event becomes one transaction ----------
+awareness.on("change", () => {
+  paintOverlay();
+  paintPeers();
+});
+
+// Only our own state goes up; the server relays it to everyone else on this file.
+awareness.on("update", ({ added, updated, removed }, origin) => {
+  if (origin === SERVER) {
+    // Forget removed peers' clocks, or their reconnect (which may re-send the same clock) would be ignored.
+    for (const clientId of removed) if (clientId !== ydoc.clientID) awareness.meta.delete(clientId);
+    return;
+  }
+  if (!online) return;
+  if ([...added, ...updated, ...removed].includes(ydoc.clientID)) {
+    socket.emit("awareness", encodeAwarenessUpdate(awareness, [ydoc.clientID]));
+  }
+});
+
+// ---------- textarea plumbing ----------
 
 editor.addEventListener("beforeinput", (event) => {
   if (event.inputType === "historyUndo") {
@@ -295,7 +252,7 @@ editor.addEventListener("input", () => {
   const change = diff(shadow, next, editor.selectionEnd);
   shadow = next;
   if (change.deleteCount || change.insert) applyChange(change);
-  if (docText() !== next) refresh();
+  if (ytext.toString() !== next) refresh();
   captureSelection();
   publishCursor();
 });
@@ -323,32 +280,34 @@ editor.addEventListener("scroll", () => { overlay.scrollTop = editor.scrollTop; 
 undoButton.addEventListener("click", () => { undo(); editor.focus(); });
 redoButton.addEventListener("click", () => { redo(); editor.focus(); });
 
-// ---------- socket: the only traffic is binary updates ----------
+// ---------- socket ----------
 
 socket.on("connect", () => {
   setStatus("syncing");
   socket.emit("sync", Y.encodeStateVector(ydoc), (reply) => {
     if (!reply) return;
     Y.applyUpdate(ydoc, new Uint8Array(reply.update), SERVER);
+    if (reply.awareness) applyAwarenessUpdate(awareness, new Uint8Array(reply.awareness), SERVER);
     // Whatever the server lacks (edits made while offline) goes back in one update.
     const missing = Y.encodeStateAsUpdate(ydoc, new Uint8Array(reply.state));
     online = true;
     if (missing.length > 2) socket.emit("update", { update: missing, undo: false });
+    socket.emit("awareness", encodeAwarenessUpdate(awareness, [ydoc.clientID]));
     editor.disabled = false;
     refresh();
     showPreview(reply.html, "server");
     setStatus();
-    if (!selection) captureSelection();
-    publishCursor(true);
   });
 });
 
 socket.on("update", (update) => Y.applyUpdate(ydoc, new Uint8Array(update), SERVER));
+socket.on("awareness", (update) => applyAwarenessUpdate(awareness, new Uint8Array(update), SERVER));
 socket.on("render", ({ html }) => { if (online) showPreview(html, "server"); });
 
 socket.on("disconnect", () => {
   online = false;
-  lastCursor = "";
+  const peers = [...awareness.getStates().keys()].filter((clientId) => clientId !== ydoc.clientID);
+  removeAwarenessStates(awareness, peers, SERVER);
   setStatus();
   renderLocalPreview();
 });
@@ -396,4 +355,4 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 }
 
-window.v2 = { ydoc, lines, cursors, undoManager, socket };
+window.v2 = { ydoc, ytext, awareness, undoManager, socket };

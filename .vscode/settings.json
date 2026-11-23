@@ -1,0 +1,5 @@
+{
+  "python.defaultInterpreterPath": "/opt/miniconda3/envs/yjs/bin/python",
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"]
+}
